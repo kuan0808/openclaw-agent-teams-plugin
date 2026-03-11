@@ -58,41 +58,44 @@ Config is validated and parsed at activation. Stores are initialized per team wi
 ### Quick Start
 
 ```bash
-openclaw plugins install openclaw-plugin-agent-teams
-```
-
-Then configure in your OpenClaw config:
-
-```bash
-openclaw config set plugins.agent-teams '{
-  "teams": {
-    "dev": {
-      "description": "Development team",
-      "coordination": "peer",
-      "members": {
-        "alice": { "role": "Full-stack developer" },
-        "bob": { "role": "Backend specialist", "skills": ["api", "database"] }
-      }
-    }
-  }
-}'
-```
-
-### From Source
-
-```bash
-git clone <repo-url> openclaw-plugin-agent-teams
-cd openclaw-plugin-agent-teams
+# Clone into the conventional plugins directory
+mkdir -p ~/.openclaw/workspace/plugins
+cd ~/.openclaw/workspace/plugins
+git clone https://github.com/kuan0808/openclaw-agent-teams-plugin.git agent-teams
+cd agent-teams
 npm install
 npm run build
-openclaw plugins install ./openclaw-plugin-agent-teams
+
+# Register & enable
+openclaw plugins install .
 ```
 
-### Dev Mode (symlink)
+This plugin requires team configuration to function. After installing, use the built-in [onboarding skill](#onboarding-skill) to set up your first team interactively:
+
+```
+You: "set up agent teams"
+```
+
+Or configure manually — see [Configuration](#configuration) for examples.
+
+### Manual Registration
+
+If you prefer manual control or need to keep existing plugins in your config, clone and build as above, then register manually instead of using `openclaw plugins install`:
 
 ```bash
-cd openclaw-plugin-agent-teams
-npm install
+# Add to allowed plugins list (keep any existing plugins in the array)
+openclaw config set plugins.allow '["agent-teams"]'
+
+# Tell OpenClaw where to find the plugin
+openclaw config set plugins.load.paths '["~/.openclaw/workspace/plugins/agent-teams"]'
+
+# Enable the plugin
+openclaw config set plugins.entries.agent-teams.enabled true
+```
+
+### Dev Mode
+
+```bash
 npm run build
 openclaw plugins link .
 ```
@@ -312,13 +315,6 @@ CLI agents spawn **on-demand** when assigned a task — they don't start at plug
   }
 }
 ```
-
-### CLI Commands
-
-- `/team agents` — Show status of all CLI agents (running, idle, crashed)
-- `/team start <team/member>` — Manually spawn a CLI agent
-- `/team stop-agent <team/member>` — Kill a running CLI agent
-- `/team logs <team/member>` — Print the log file path for a CLI agent
 
 ## Workflow Templates
 
