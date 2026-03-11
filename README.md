@@ -1,4 +1,4 @@
-# openclaw-plugin-agent-teams
+# Agent Teams Plugin for OpenClaw
 
 Declarative multi-agent team coordination for OpenClaw.
 
@@ -58,49 +58,58 @@ Config is validated and parsed at activation. Stores are initialized per team wi
 ### Quick Start
 
 ```bash
-# Clone into the conventional plugins directory
-mkdir -p ~/.openclaw/workspace/plugins
-cd ~/.openclaw/workspace/plugins
-git clone https://github.com/kuan0808/openclaw-agent-teams-plugin.git agent-teams
-cd agent-teams
+# Clone the repo (any location works)
+git clone https://github.com/kuan0808/openclaw-agent-teams-plugin.git
+cd openclaw-agent-teams-plugin
 npm install
 npm run build
 
-# Register & enable
+# Register & enable (copies plugin into OpenClaw's extensions directory)
 openclaw plugins install .
+
+# Restart the gateway to load the plugin
+openclaw gateway restart
 ```
 
-This plugin requires team configuration to function. After installing, use the built-in [onboarding skill](#onboarding-skill) to set up your first team interactively:
+> **`install` vs `install --link`:** `openclaw plugins install .` copies your built plugin into the extensions directory. `openclaw plugins install --link .` creates a symlink instead — changes take effect after `npm run build` + `openclaw gateway restart` without needing to reinstall.
+
+After installing, configure your teams (see [Configuration](#configuration)):
+
+```bash
+# Set team config (JSON)
+openclaw config set plugins.entries.agent-teams.config --strict-json '{
+  "teams": {
+    "my-team": {
+      "description": "My first team",
+      "coordination": "peer",
+      "members": {
+        "alice": { "role": "General-purpose assistant" }
+      }
+    }
+  }
+}'
+
+# Restart to apply config changes
+openclaw gateway restart
+```
+
+Or use the built-in [onboarding skill](#onboarding-skill) for interactive setup:
 
 ```
 You: "set up agent teams"
 ```
 
-Or configure manually — see [Configuration](#configuration) for examples.
+### Dev Mode (Link)
 
-### Manual Registration
-
-If you prefer manual control or need to keep existing plugins in your config, clone and build as above, then register manually instead of using `openclaw plugins install`:
-
-```bash
-# Add to allowed plugins list (keep any existing plugins in the array)
-openclaw config set plugins.allow '["agent-teams"]'
-
-# Tell OpenClaw where to find the plugin
-openclaw config set plugins.load.paths '["~/.openclaw/workspace/plugins/agent-teams"]'
-
-# Enable the plugin
-openclaw config set plugins.entries.agent-teams.enabled true
-```
-
-### Dev Mode
+For development, use `--link` to symlink instead of copying:
 
 ```bash
 npm run build
-openclaw plugins link .
+openclaw plugins install --link .
+openclaw gateway restart
 ```
 
-Use `npm run dev` for watch mode during development.
+With `--link`, you don't need to reinstall after each change — just `npm run build && openclaw gateway restart`. Use `npm run dev` for watch mode during development.
 
 ## Configuration
 
@@ -225,15 +234,17 @@ Use `npm run dev` for watch mode during development.
 
 All commands use the `/team` prefix:
 
-| Command | Description | Auth Required |
-|---------|-------------|---------------|
-| `/team status [name]` | Show run progress, task board, active members | No |
-| `/team list` | List all teams with member count and status | No |
-| `/team stop <name>` | Cancel the current run for a team | Yes |
-| `/team agents` | Show status of all CLI agents | No |
-| `/team logs <team/member>` | Print CLI agent log file path | No |
-| `/team start <team/member>` | Manually spawn a CLI agent | Yes |
-| `/team stop-agent <team/member>` | Kill a running CLI agent | Yes |
+| Command | Description | Auth | CLI only* |
+|---------|-------------|:----:|:---------:|
+| `/team status [name]` | Show run progress, task board, active members | | |
+| `/team list` | List all teams with member count and status | | |
+| `/team stop <name>` | Cancel the current run for a team | Yes | |
+| `/team agents` | Show status of all CLI agents | | Yes |
+| `/team logs <team/member>` | Print CLI agent log file path | | Yes |
+| `/team start <team/member>` | Manually spawn a CLI agent | Yes | Yes |
+| `/team stop-agent <team/member>` | Kill a running CLI agent | Yes | Yes |
+
+*\*CLI-only commands are registered only when at least one team member has `cli` configured.*
 
 Commands accepting `<team/member>` also accept just `<member>` if the member name is unique across teams.
 
