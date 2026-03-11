@@ -1,0 +1,30 @@
+{
+  "name": "openclaw-plugin-agent-teams",
+  "version": "1.0.0",
+  "description": "OpenClaw plugin for declarative multi-agent team coordination",
+  "main": "./dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && tsc -p tsconfig.mcp-bridge.json",
+    "build:plugin": "tsc",
+    "build:mcp-bridge": "tsc -p tsconfig.mcp-bridge.json",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@sinclair/typebox": "^0.34.0",
+    "vitest": "^3.0.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.2.26"
+  }
+}

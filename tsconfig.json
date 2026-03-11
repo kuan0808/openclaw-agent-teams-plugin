@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "openclaw/plugin-sdk": ["/opt/homebrew/lib/node_modules/openclaw/dist/plugin-sdk/plugins/types.d.ts"],
+      "openclaw/plugin-sdk/*": ["/opt/homebrew/lib/node_modules/openclaw/dist/plugin-sdk/*"],
+      "@mariozechner/pi-agent-core": ["/opt/homebrew/lib/node_modules/openclaw/node_modules/@mariozechner/pi-agent-core/dist/types.d.ts"],
+      "@mariozechner/pi-ai": ["/opt/homebrew/lib/node_modules/openclaw/node_modules/@mariozechner/pi-ai/dist/types.d.ts"]
+    }
+  },
+  "include": ["index.ts", "src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests", "src/cli/mcp-bridge.ts"]
+}
