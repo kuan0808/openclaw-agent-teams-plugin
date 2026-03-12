@@ -7,11 +7,13 @@
 
 import type { EventEntry, EventQueueConfig } from "../types.js";
 import { readJson, writeJson } from "./persistence.js";
+import { restoreCounter } from "../tools/tool-helpers.js";
 
 const DEFAULT_MAX_BACKLOG = 500;
 
 export class EventQueue {
   private events: EventEntry[] = [];
+  private startIndex = 0;
   private persistPath: string;
   private maxBacklog: number;
   private counter = 0;
@@ -27,15 +29,20 @@ export class EventQueue {
     this.events = await readJson<EventEntry[]>(this.persistPath, []);
 
     // Restore counter from highest existing id
-    for (const ev of this.events) {
-      const num = parseInt(ev.id.replace("ev-", ""), 10);
-      if (!isNaN(num) && num >= this.counter) {
-        this.counter = num + 1;
-      }
+    this.counter = restoreCounter(this.events, "ev-");
+
+    // Seed counter from timestamp if no events exist to avoid restart collision
+    if (this.events.length === 0 && this.counter === 0) {
+      this.counter = Date.now() % 1_000_000;
     }
   }
 
   async save(): Promise<void> {
+    // Compact on save — drop entries before startIndex
+    if (this.startIndex > 0) {
+      this.events = this.events.slice(this.startIndex);
+      this.startIndex = 0;
+    }
     await writeJson(this.persistPath, this.events);
   }
 
@@ -53,10 +60,10 @@ export class EventQueue {
 
     this.events.push(entry);
 
-    // Trim ring buffer from the front (oldest)
-    if (this.events.length > this.maxBacklog) {
-      const excess = this.events.length - this.maxBacklog;
-      this.events.splice(0, excess);
+    // Trim ring buffer from the front (oldest) using start pointer
+    const activeLength = this.events.length - this.startIndex;
+    if (activeLength > this.maxBacklog) {
+      this.startIndex = this.events.length - this.maxBacklog;
     }
 
     return entry.id;
@@ -72,11 +79,11 @@ export class EventQueue {
   subscribe(topic: string, since?: string | number, limit?: number): EventEntry[] {
     let filtered: EventEntry[];
 
-    // Filter by topic ("*" matches everything)
+    // Filter by topic ("*" matches everything), iterating from startIndex
     if (topic === "*") {
-      filtered = this.events;
+      filtered = this.activeEvents();
     } else {
-      filtered = this.events.filter((e) => e.topic === topic);
+      filtered = this.activeEvents().filter((e) => e.topic === topic);
     }
 
     // Filter by `since` — either a timestamp (number) or event id (string)
@@ -103,18 +110,24 @@ export class EventQueue {
 
   getTopics(): string[] {
     const topics = new Set<string>();
-    for (const ev of this.events) {
-      topics.add(ev.topic);
+    for (let i = this.startIndex; i < this.events.length; i++) {
+      topics.add(this.events[i]!.topic);
     }
     return Array.from(topics).sort();
   }
 
   clear(): void {
     this.events = [];
+    this.startIndex = 0;
     // Intentionally do NOT reset counter — ids should never repeat
   }
 
   // ── Internal ────────────────────────────────────────────────────────
+
+  /** Return active events (from startIndex onward). Only allocates on first call per mutation. */
+  private activeEvents(): EventEntry[] {
+    return this.startIndex === 0 ? this.events : this.events.slice(this.startIndex);
+  }
 
   private nextId(): string {
     return `ev-${this.counter++}`;

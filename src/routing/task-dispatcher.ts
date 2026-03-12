@@ -65,9 +65,17 @@ export function routeTask(
     };
   }
 
-  if (callerMember) {
+  if (callerMember && callerMember in teamConfig.members) {
     return {
       assigned_to: callerMember,
+      routing_reason: "peer_auto_assign",
+    };
+  }
+
+  const peerMembers = Object.keys(teamConfig.members);
+  if (peerMembers.length > 0) {
+    return {
+      assigned_to: loadBalance(peerMembers, existingTasks),
       routing_reason: "peer_auto_assign",
     };
   }

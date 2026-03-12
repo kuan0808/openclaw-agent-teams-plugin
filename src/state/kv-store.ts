@@ -36,6 +36,7 @@ export class KvStore {
   }
 
   async save(): Promise<void> {
+    this.sweepExpired();
     const arr = Array.from(this.entries.values());
     await writeJson(this.persistPath, arr);
   }

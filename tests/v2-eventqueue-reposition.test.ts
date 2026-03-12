@@ -359,10 +359,10 @@ describe("team_command: handleStop audit", () => {
     // Import and execute the command
     const { createTeamCommands } = await import("../src/commands/team-command.js");
     const commands = createTeamCommands();
-    const stopCmd = commands.find(c => c.name === "team stop")!;
+    const stopCmd = commands.find(c => c.name === "team")!;
 
     await stopCmd.handler({
-      args: "dev",
+      args: "stop dev",
       config: {},
       senderId: "user",
       isAuthorizedSender: true,
@@ -385,10 +385,10 @@ describe("team_command: handleStop audit", () => {
 
     const { createTeamCommands } = await import("../src/commands/team-command.js");
     const commands = createTeamCommands();
-    const stopCmd = commands.find(c => c.name === "team stop")!;
+    const stopCmd = commands.find(c => c.name === "team")!;
 
     await stopCmd.handler({
-      args: "dev",
+      args: "stop dev",
       config: {},
       senderId: "user",
       isAuthorizedSender: true,

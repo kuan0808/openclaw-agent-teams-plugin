@@ -29,58 +29,56 @@ export interface TeamCommandDef {
 export function createTeamCommands(): TeamCommandDef[] {
   return [
     {
-      name: "team status",
-      description: "Show current run progress, task board, and active members for a team.",
+      name: "team",
+      description: "Team management command. Subcommands: list, status, stop, agents, logs, start, stop-agent.",
       acceptsArgs: true,
       requireAuth: false,
-      handler: handleStatus,
-    },
-    {
-      name: "team stop",
-      description: "Cancel the current run for a team and notify members.",
-      acceptsArgs: true,
-      requireAuth: true,
-      handler: handleStop,
-    },
-    {
-      name: "team list",
-      description: "List all defined teams with member count and run status.",
-      acceptsArgs: false,
-      requireAuth: false,
-      handler: handleList,
-    },
-    {
-      name: "team agents",
-      description: "Show status of all CLI agents (running/stopped/exited).",
-      acceptsArgs: false,
-      requireAuth: false,
-      handler: handleAgents,
-    },
-    {
-      name: "team logs",
-      description: "Print path to CLI agent log file for `tail -f` observation.",
-      acceptsArgs: true,
-      requireAuth: false,
-      handler: handleLogs,
-    },
-    {
-      name: "team start",
-      description: "Manually spawn a CLI agent.",
-      acceptsArgs: true,
-      requireAuth: true,
-      handler: handleStartAgent,
-    },
-    {
-      name: "team stop-agent",
-      description: "Kill a running CLI agent.",
-      acceptsArgs: true,
-      requireAuth: true,
-      handler: handleStopAgent,
+      handler: handleTeamCommand,
     },
   ];
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────
+
+async function handleTeamCommand(ctx: {
+  args?: string;
+  config: any;
+  senderId?: string;
+  isAuthorizedSender: boolean;
+}): Promise<{ text?: string }> {
+  const rawArgs = ctx.args?.trim() ?? "";
+  if (!rawArgs) {
+    return handleList(ctx);
+  }
+
+  const [subcommand, ...rest] = rawArgs.split(/\s+/);
+  const subArgs = rest.join(" ").trim();
+
+  switch (subcommand) {
+    case "list":
+      return handleList({ ...ctx, args: subArgs });
+    case "status":
+      return handleStatus({ ...ctx, args: subArgs });
+    case "stop":
+      return handleStop({ ...ctx, args: subArgs });
+    case "agents":
+      return handleAgents();
+    case "logs":
+      return handleLogs({ args: subArgs });
+    case "start":
+      return handleStartAgent({
+        args: subArgs,
+        isAuthorizedSender: ctx.isAuthorizedSender,
+      });
+    case "stop-agent":
+      return handleStopAgent({
+        args: subArgs,
+        isAuthorizedSender: ctx.isAuthorizedSender,
+      });
+    default:
+      return handleStatus({ ...ctx, args: rawArgs });
+  }
+}
 
 async function handleStatus(ctx: {
   args?: string;

@@ -13,7 +13,7 @@
 
 import { Type, type Static } from "@sinclair/typebox";
 import { getRegistry } from "../registry.js";
-import { resolveDependencies, shouldBlock } from "../routing/dependency-resolver.js";
+import { resolveDependencies, shouldBlock, detectCycle } from "../routing/dependency-resolver.js";
 import { routeTask } from "../routing/task-dispatcher.js";
 import { handleFailLoopback } from "../workflow/template-engine.js";
 import type {
@@ -25,9 +25,10 @@ import type {
   LearningCategory,
   GateConfig,
 } from "../types.js";
-import { makeAgentId, isCliMember, getCliCwd } from "../types.js";
-import { textResult, errorResult, resolveToolContext, LEARNINGS_KEY_PREFIX, type ToolContext } from "./tool-helpers.js";
-import { buildSystemPrompt } from "../cli/prompt-builder.js";
+import { makeAgentId, makeRunSessionKey, isCliMember, getCliCwd } from "../types.js";
+import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, notifyRequester, LEARNINGS_KEY_PREFIX, DESCRIPTION_PREVIEW_LEN, wakeActiveNativeAssignee, type ToolContext } from "./tool-helpers.js";
+import { spawnCliIfNeeded } from "./cli-spawn-helper.js";
+import { validateTransition } from "../state/run-manager.js";
 
 // ── Parameters ──────────────────────────────────────────────────────────
 
@@ -40,6 +41,13 @@ const TASK_STATES: TaskState[] = [
   "FAILED",
   "CANCELED",
 ];
+
+const ACTIVE_TASK_STATES = new Set<TaskState>([
+  "BLOCKED",
+  "PENDING",
+  "WORKING",
+  "INPUT_REQUIRED",
+]);
 
 const Parameters = Type.Object({
   action: Type.Union(
@@ -82,6 +90,12 @@ const Parameters = Type.Object({
   ),
   filter_status: Type.Optional(
     Type.Array(Type.String(), { description: "Filter tasks by status" }),
+  ),
+  filter: Type.Optional(
+    Type.Union(
+      [Type.Literal("mine"), Type.Literal("unassigned"), Type.Literal("available")],
+      { description: "Filter tasks: 'mine' (assigned to me), 'unassigned' (no assignee), 'available' (PENDING tasks I could claim)" },
+    ),
   ),
   // ── New: Deliverables ──────────────────────────────────────────────
   deliverables: Type.Optional(
@@ -150,14 +164,33 @@ export function teamTaskTool(ctx: ToolContext) {
             return errorResult("Parameter 'description' is required for action=create.");
           }
 
-          const currentRun = runs.getRun(teamCtx.team);
+          if (teamCtx.member === "__leader__" && teamConfig?.coordination === "peer") {
+            return errorResult(
+              `Peer-mode tasks must be created by peer members, not the main session. Start a run with team_run(action: "start") first, then send messages to peer agents via sessions_send.`,
+            );
+          }
+
+          if (
+            teamCtx.member === "__leader__" &&
+            teamConfig?.coordination === "orchestrator" &&
+            teamConfig.orchestrator
+          ) {
+            return errorResult(
+              `Orchestrator-mode tasks must be created by the orchestrator agent, not the main session. Start a run with team_run(action: "start") first — it will return a sessions_send directive.`,
+            );
+          }
+
+          // Resolve runId from caller's session or fallback to single active run
+          const callerRunId = resolveRunIdFromSession(ctx.sessionKey);
+          const currentRun = runs.getRun(teamCtx.team, callerRunId);
           if (!currentRun.found) {
             return errorResult(
               `No active run for team "${teamCtx.team}". Start a run first with team_run action=start.`,
             );
           }
+          const effectiveRunId = currentRun.run.id;
 
-          const existingTasks = runs.listTasks(teamCtx.team);
+          const existingTasks = runs.listTasks(teamCtx.team, undefined, effectiveRunId);
 
           // Route the task
           const routing = routeTask(
@@ -169,18 +202,46 @@ export function teamTaskTool(ctx: ToolContext) {
             existingTasks,
           );
 
+          if (teamConfig?.coordination === "peer" && routing.assigned_to === teamCtx.member) {
+            const activeOwnTasks = existingTasks.filter(
+              (task) =>
+                task.assigned_to === teamCtx.member &&
+                ACTIVE_TASK_STATES.has(task.status as TaskState),
+            );
+
+            if (activeOwnTasks.length > 0) {
+              const activeTaskPreview = activeOwnTasks
+                .slice(0, 3)
+                .map((task) => task.id)
+                .join(", ");
+              const overflow =
+                activeOwnTasks.length > 3 ? ` and ${activeOwnTasks.length - 3} more` : "";
+              return errorResult(
+                `Finish or update your active peer tasks before creating another task for yourself. Use team_task(action: "query", filter: "mine") to review your current work, or assign the new task to a different peer explicitly. Active tasks: ${activeTaskPreview}${overflow}.`,
+              );
+            }
+          }
+
+          const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+          // Check for circular dependencies
+          if (params.depends_on?.length) {
+            const cycle = detectCycle(existingTasks, taskId, params.depends_on);
+            if (cycle) {
+              return errorResult(`Circular dependency detected: ${cycle.join(" → ")}`);
+            }
+          }
+
           // Determine initial status based on dependencies
           const initialStatus: TaskState =
             params.depends_on?.length && shouldBlock(existingTasks, params.depends_on)
               ? "BLOCKED"
               : "PENDING";
 
-          const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-          const task = runs.addTask(teamCtx.team, {
+          let task = runs.addTask(teamCtx.team, {
             id: taskId,
             team: teamCtx.team,
-            run_id: currentRun.run.id,
+            run_id: effectiveRunId,
             description: params.description,
             assigned_to: routing.assigned_to,
             status: initialStatus,
@@ -189,7 +250,7 @@ export function teamTaskTool(ctx: ToolContext) {
           });
 
           // Log activity
-          activity.log(teamCtx.team, teamCtx.member, "task_created", `Task created: ${params.description.slice(0, 80)}`, {
+          activity.log(teamCtx.team, teamCtx.member, "task_created", `Task created: ${params.description.slice(0, DESCRIPTION_PREVIEW_LEN)}`, {
             target_id: taskId,
             metadata: {
               assigned_to: task.assigned_to,
@@ -197,7 +258,10 @@ export function teamTaskTool(ctx: ToolContext) {
               routing_reason: task.routing_reason,
             },
           });
-          await Promise.all([runs.save(), activity.save()]);
+          await safeSaveAll([runs.save(), activity.save()]);
+
+          // Notify requester about new task
+          notifyRequester(teamCtx.team, `New task "${params.description.slice(0, DESCRIPTION_PREVIEW_LEN)}" assigned to ${task.assigned_to ?? "unassigned"}`, effectiveRunId);
 
           // Trigger CLI agent spawn on task assignment
           if (task.assigned_to && teamConfig) {
@@ -207,12 +271,60 @@ export function teamTaskTool(ctx: ToolContext) {
             );
           }
 
-          return textResult({
+          if (task.assigned_to && teamConfig) {
+            const assigneeMemberConfig = teamConfig.members[task.assigned_to];
+            if (assigneeMemberConfig && !isCliMember(assigneeMemberConfig)) {
+              await wakeActiveNativeAssignee(teamCtx.team, task, stores);
+              const latestTask = runs.getTask(teamCtx.team, task.id);
+              if (latestTask) {
+                task = latestTask;
+              }
+            }
+          }
+
+          const createResult: Record<string, unknown> = {
             task_id: task.id,
             assigned_to: task.assigned_to ?? null,
             status: task.status,
             routing_reason: task.routing_reason ?? null,
-          });
+          };
+
+          // Add session directive for native (non-CLI) members
+          if (task.assigned_to && teamConfig) {
+            const assigneeMemberConfig = teamConfig.members[task.assigned_to];
+            if (assigneeMemberConfig && !isCliMember(assigneeMemberConfig)) {
+              const agentId = makeAgentId(teamCtx.team, task.assigned_to);
+              const assigneeRunSessionKey = makeRunSessionKey(agentId, effectiveRunId);
+
+              // Check if member already has an active session for this run
+              const runSessions = registry.memberSessions.get(agentId);
+              const hasRunSession = runSessions?.has(effectiveRunId);
+              const hasLegacySession = registry.sessions.has(agentId);
+
+              if (hasRunSession || hasLegacySession) {
+                createResult.active_session = true;
+              } else {
+                createResult.requires_session = true;
+                createResult.send_action =
+                  `Call sessions_send({ message: ${JSON.stringify(`Work on: ${params.description.slice(0, DESCRIPTION_PREVIEW_LEN)}`)}, sessionKey: ${JSON.stringify(assigneeRunSessionKey)} }) to activate this agent for the current run.`;
+                createResult.REQUIRED_ACTION =
+                  `To start this task, call sessions_send({ message: ${JSON.stringify(`Work on: ${params.description.slice(0, DESCRIPTION_PREVIEW_LEN)}`)}, sessionKey: ${JSON.stringify(assigneeRunSessionKey)} }). The task will remain PENDING until you do this.`;
+
+                if (ctx.sessionKey) {
+                  registry.enqueueSystemEvent(
+                    `[Team Update] ${createResult.REQUIRED_ACTION}`,
+                    { sessionKey: ctx.sessionKey },
+                  );
+                  registry.requestHeartbeatNow({
+                    agentId: ctx.agentId,
+                    reason: "session-required",
+                    sessionKey: ctx.sessionKey,
+                  });
+                }
+              }
+            }
+          }
+          return textResult(createResult);
         }
 
         // ── update ────────────────────────────────────────────────────
@@ -224,6 +336,37 @@ export function teamTaskTool(ctx: ToolContext) {
           const existing = runs.getTask(teamCtx.team, params.task_id);
           if (!existing) {
             return errorResult(`Task "${params.task_id}" not found in team "${teamCtx.team}".`);
+          }
+
+          // Resolve the run this task belongs to
+          const taskRunId = existing.run_id;
+
+          if (params.status && existing.depends_on?.length) {
+            const allTasks = runs.listTasks(teamCtx.team, undefined, taskRunId);
+            const completedIds = new Set(
+              allTasks
+                .filter((task) => task.status === "COMPLETED")
+                .map((task) => task.id),
+            );
+            const unresolvedDeps = existing.depends_on.filter((dep) => !completedIds.has(dep));
+
+            if (
+              unresolvedDeps.length > 0 &&
+              params.status !== "BLOCKED" &&
+              params.status !== "CANCELED"
+            ) {
+              return errorResult(
+                `Cannot move task forward while dependencies are unresolved. Complete dependencies first: ${unresolvedDeps.join(", ")}`,
+              );
+            }
+          }
+
+          // ── Task state machine validation ─────────────────────────
+          if (params.status) {
+            const transitionError = validateTransition(existing.status, params.status as TaskState);
+            if (transitionError) {
+              return errorResult(transitionError);
+            }
           }
 
           // ── Gate enforcement ──────────────────────────────────────
@@ -290,6 +433,15 @@ export function teamTaskTool(ctx: ToolContext) {
                   target_id: params.task_id,
                   metadata: { category: learning.category, confidence: learning.confidence },
                 });
+
+              // Notify leader about new learning if configured
+              if (teamConfig?.knowledge?.notify_leader && teamConfig.orchestrator) {
+                stores.messages.push(
+                  teamCtx.member,
+                  teamConfig.orchestrator,
+                  `New learning [${learning.category}]: ${learning.content.slice(0, 120)}`,
+                );
+              }
             }
           }
 
@@ -301,7 +453,7 @@ export function teamTaskTool(ctx: ToolContext) {
           // If task was completed, resolve blocked dependencies
           let unblockedTasks: string[] = [];
           if (params.status === "COMPLETED") {
-            const allTasks = runs.listTasks(teamCtx.team);
+            const allTasks = runs.listTasks(teamCtx.team, undefined, taskRunId);
             const unblocked = resolveDependencies(allTasks, params.task_id);
             unblockedTasks = unblocked.map((t) => t.id);
 
@@ -311,11 +463,21 @@ export function teamTaskTool(ctx: ToolContext) {
                   target_id: params.task_id,
                   metadata: { unblocked: unblockedTasks },
                 });
+
+              if (teamConfig) {
+                for (const task of unblocked) {
+                  if (!task.assigned_to) continue;
+                  const assigneeMemberConfig = teamConfig.members[task.assigned_to];
+                  if (assigneeMemberConfig && !isCliMember(assigneeMemberConfig)) {
+                    await wakeActiveNativeAssignee(teamCtx.team, task, stores);
+                  }
+                }
+              }
             }
 
             // Log task completion
             activity.log(teamCtx.team, teamCtx.member, "task_completed",
-              `Task completed: ${existing.description.slice(0, 80)}`, {
+              `Task completed: ${existing.description.slice(0, DESCRIPTION_PREVIEW_LEN)}`, {
                 target_id: params.task_id,
               });
           }
@@ -323,9 +485,8 @@ export function teamTaskTool(ctx: ToolContext) {
           // ── Workflow fail-loopback handling ─────────────────────────
           let loopbackResult: Record<string, unknown> | undefined;
           if (params.status === "FAILED" && teamConfig?.workflow?.template && existing.workflow_stage) {
-            const allTasks = runs.listTasks(teamCtx.team);
-            const currentRun = runs.getRun(teamCtx.team);
-            const runId = currentRun.found ? currentRun.run.id : "unknown";
+            const allTasks = runs.listTasks(teamCtx.team, undefined, taskRunId);
+            const runId = taskRunId ?? "unknown";
 
             const loopback = handleFailLoopback(
               teamConfig.workflow.template,
@@ -371,13 +532,21 @@ export function teamTaskTool(ctx: ToolContext) {
                 rework_stage: loopback.reworkTask.workflow_stage,
                 reblocked_tasks: loopback.tasksToReblock,
               };
+
+              // Spawn CLI agent for rework task if needed
+              if (reworkTask.assigned_to && teamConfig) {
+                await spawnCliIfNeeded(
+                  registry, teamCtx.team, reworkTask.assigned_to, teamConfig,
+                  stores, reworkTask.description,
+                );
+              }
             }
           }
 
           // Log status-specific activity (after loopback handling)
           if (params.status === "FAILED") {
             activity.log(teamCtx.team, teamCtx.member, "task_failed",
-              `Task failed: ${existing.description.slice(0, 80)}`, {
+              `Task failed: ${existing.description.slice(0, DESCRIPTION_PREVIEW_LEN)}`, {
                 target_id: params.task_id,
                 metadata: { message: params.message },
               });
@@ -390,7 +559,16 @@ export function teamTaskTool(ctx: ToolContext) {
               });
           }
 
-          await Promise.all([runs.save(), stores.kv.save(), activity.save()]);
+          await safeSaveAll([runs.save(), stores.kv.save(), stores.messages.save(), activity.save()]);
+
+          // Notify requester about significant task status changes
+          if (params.status === "WORKING") {
+            notifyRequester(teamCtx.team, `Agent "${teamCtx.member}" started working on "${existing.description.slice(0, DESCRIPTION_PREVIEW_LEN)}"`, taskRunId);
+          } else if (params.status === "COMPLETED") {
+            notifyRequester(teamCtx.team, `Agent "${teamCtx.member}" completed "${existing.description.slice(0, DESCRIPTION_PREVIEW_LEN)}"`, taskRunId);
+          } else if (params.status === "FAILED") {
+            notifyRequester(teamCtx.team, `Task "${existing.description.slice(0, DESCRIPTION_PREVIEW_LEN)}" failed: ${params.message ?? "unknown reason"}`, taskRunId);
+          }
 
           // Trigger CLI agent spawn when task is reassigned
           if (params.assign_to && teamConfig) {
@@ -398,6 +576,11 @@ export function teamTaskTool(ctx: ToolContext) {
               registry, teamCtx.team, params.assign_to, teamConfig,
               stores, existing.description,
             );
+
+            const assigneeMemberConfig = teamConfig.members[params.assign_to];
+            if (assigneeMemberConfig && !isCliMember(assigneeMemberConfig)) {
+              await wakeActiveNativeAssignee(teamCtx.team, updated, stores);
+            }
           }
 
           const result: Record<string, unknown> = {
@@ -429,7 +612,26 @@ export function teamTaskTool(ctx: ToolContext) {
 
         // ── query ─────────────────────────────────────────────────────
         case "query": {
-          const tasks = runs.listTasks(teamCtx.team, params.filter_status);
+          // Resolve runId for scoped queries: callers in a run session only see their run's tasks
+          const queryRunId = resolveRunIdFromSession(ctx.sessionKey);
+          let tasks = runs.listTasks(teamCtx.team, params.filter_status, queryRunId);
+
+          // Apply convenience filter
+          if (params.filter) {
+            switch (params.filter) {
+              case "mine":
+                tasks = tasks.filter((t) => t.assigned_to === teamCtx.member);
+                break;
+              case "unassigned":
+                tasks = tasks.filter((t) => !t.assigned_to);
+                break;
+              case "available":
+                tasks = tasks.filter(
+                  (t) => t.status === "PENDING" && (!t.assigned_to || t.assigned_to === teamCtx.member),
+                );
+                break;
+            }
+          }
 
           const taskList = tasks.map((t) => ({
             task_id: t.id,
@@ -502,59 +704,6 @@ export function enforceGates(
   }
 
   return null;
-}
-
-// ── CLI spawn on task assignment ─────────────────────────────────────────
-
-async function spawnCliIfNeeded(
-  registry: import("../registry.js").PluginRegistry,
-  team: string,
-  assignedTo: string,
-  teamConfig: TeamConfig,
-  stores: import("../registry.js").TeamStores,
-  taskDescription: string,
-): Promise<void> {
-  const memberConfig = teamConfig.members[assignedTo];
-  if (!memberConfig || !isCliMember(memberConfig)) return;
-
-  const cliSpawner = registry.cliSpawner;
-  if (!cliSpawner) return;
-
-  const assigneeAgentId = makeAgentId(team, assignedTo);
-  if (cliSpawner.isAlive(assigneeAgentId)) return;
-
-  try {
-    const systemPrompt = await buildSystemPrompt({
-      team,
-      member: assignedTo,
-      teamConfig,
-      memberConfig,
-      stores,
-      initialTask: taskDescription,
-      isCli: true,
-    });
-
-    await cliSpawner.spawn({
-      agentId: assigneeAgentId,
-      team,
-      member: assignedTo,
-      cli: memberConfig.cli!,
-      cwd: getCliCwd(memberConfig),
-      systemPrompt,
-      initialTask: taskDescription,
-      model: memberConfig.model?.primary,
-      thinking: memberConfig.cli_options?.thinking,
-      verbose: memberConfig.cli_options?.verbose,
-      extraArgs: memberConfig.cli_options?.extra_args,
-    });
-  } catch {
-    // Log but don't fail the task creation/update
-    stores.activity.log(team, assignedTo, "task_failed",
-      `Failed to spawn CLI agent for ${assignedTo}`, {
-        metadata: { cli: memberConfig.cli },
-      });
-    await stores.activity.save();
-  }
 }
 
 // ── Learning auto-capture ───────────────────────────────────────────────

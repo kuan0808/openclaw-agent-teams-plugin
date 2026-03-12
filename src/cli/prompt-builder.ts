@@ -24,6 +24,7 @@ export interface BuildSystemPromptParams {
   stores: TeamStores;
   initialTask?: string;
   isCli?: boolean;
+  runId?: string;   // Per-run session: scope prompt to this run
 }
 
 /**
@@ -32,7 +33,7 @@ export interface BuildSystemPromptParams {
  * and CLI agent system prompt.
  */
 export async function buildSystemPrompt(params: BuildSystemPromptParams): Promise<string> {
-  const { team, member, teamConfig, memberConfig, stores, initialTask, isCli } = params;
+  const { team, member, teamConfig, memberConfig, stores, initialTask, isCli, runId } = params;
   const sections: string[] = [];
 
   // 1. Role description
@@ -49,9 +50,9 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
   }
   sections.push(`## Your Role\nYou are **${member}** in team **${team}**.\n${roleDescription}`);
 
-  // 2. Team goal (from current run)
+  // 2. Team goal (from current run or specific run)
   let currentRun: TeamRun | null = null;
-  const runResult = stores.runs.getRun(team);
+  const runResult = stores.runs.getRun(team, runId);
   if (runResult.found) {
     currentRun = runResult.run;
     sections.push(`## Current Goal\n${currentRun.goal}`);
@@ -93,6 +94,14 @@ IMPORTANT: After completing a task, always:
 - **team_inbox** — Read your direct messages or subscribe to event queue topics.
 - **team_run** — Check run status, complete, or cancel the current run.`,
     );
+
+    // Add sessions_send info for orchestrators (native only)
+    if (!isCli && teamConfig.coordination === "orchestrator" && teamConfig.orchestrator === member) {
+      sections.push(
+        `## Platform Tools (Orchestrator Only)
+- **sessions_send** — Send a message to a team member's run session. Usage: sessions_send({ message: "Work on: [task]", sessionKey: "agent:at--${team}--{member}:run:{runId}" }). This activates the member for the current run. CLI agents (marked [cli]) are auto-spawned — do not use sessions_send for them.`,
+      );
+    }
   }
 
   // 5. Event topics & activity awareness
@@ -141,30 +150,32 @@ export function buildDecisionFlow(teamConfig: TeamConfig, member: string): strin
     if (isOrchestrator) {
       return `## Decision Flow (Orchestrator)
 1. Receive goal or user request.
-2. Break the goal into discrete tasks using **team_task** (action: create).
-3. Assign tasks to the best-fit member based on skills and workload.
-4. Monitor task progress with **team_task** (action: query).
-5. When a member completes a task, review the result and unblock dependents.
-6. Consolidate final results and report back with **team_run** (action: complete).
-7. Store reusable learnings with **team_memory** for future runs.`;
+2. Break the goal into small, finishable tasks using **team_task** (action: create). Each task should have one clear owner and one concrete deliverable. Avoid broad multi-part tasks that could stall a worker for a long time. Assign each task to the best-fit member.
+3. After each task creation, inspect the tool result immediately. If team_task(create) returns requires_session or REQUIRED_ACTION, your next action must be **sessions_send** with the provided sessionKey.
+4. **Activate each assigned member** with **sessions_send**({ message: "Work on: [task description]", sessionKey: "agent:at--{team}--{member}:run:{runId}" }). CLI agents [cli] are auto-spawned — skip them. Members cannot work until activated.
+5. Report the plan to the user: summarize each task, its assignee, and the execution order.
+6. Monitor task progress with **team_task** (action: query).
+7. When a member completes a task, review the result and unblock dependents.
+8. Consolidate final results and report back with **team_run** (action: complete).
+9. Store reusable learnings with **team_memory** for future runs.`;
     }
     return `## Decision Flow (Team Member)
-1. Check for assigned tasks using **team_task** (action: query, filter: assigned to you).
-2. Claim or start work on a PENDING task with **team_task** (action: update, status: WORKING).
-3. If you need input from another member, use **team_send** or set status to INPUT_REQUIRED.
-4. Store intermediate results in **team_memory** for visibility.
-5. When done, update the task with status: COMPLETED and attach your result.
-6. Do NOT send messages directly to Telegram — deliver results through the orchestrator.`;
+1. Your assigned tasks are automatically set to WORKING when you start.
+2. If you need input from another member, use **team_send** or set status to INPUT_REQUIRED.
+3. Store intermediate results in **team_memory** for visibility.
+4. When done, update the task with status: COMPLETED and attach your result.
+5. Do NOT send messages directly to Telegram — deliver results through the orchestrator.`;
   }
 
   // Peer mode
   return `## Decision Flow (Peer Collaboration)
-1. Query existing tasks to avoid duplicating work: **team_task** (action: query).
-2. Create tasks for yourself when you identify needed work.
-3. Coordinate with peers using **team_send** for discussions.
-4. Store results in **team_memory** so peers can access them.
-5. When all tasks are complete, any member can finalize with **team_run** (action: complete).
-6. Do NOT send messages directly to Telegram — results go through the run completion flow.`;
+1. Query existing tasks and inbox before creating anything: **team_task** (action: query) and **team_inbox**.
+2. If you already have active tasks, continue them before creating more work for yourself.
+3. Create tasks only for uncovered gaps, and prefer small concrete tasks over broad work packages.
+4. Coordinate with peers using **team_send** for discussions.
+5. Store results in **team_memory** so peers can access them.
+6. When all tasks are complete, any member can finalize with **team_run** (action: complete).
+7. Do NOT send messages directly to Telegram — results go through the run completion flow.`;
 }
 
 export function buildRunSummary(run: TeamRun): string {

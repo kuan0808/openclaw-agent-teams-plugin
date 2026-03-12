@@ -17,15 +17,15 @@
 import * as path from "node:path";
 
 import { validateConfig, parseConfig } from "./src/config.js";
-import { setRegistry, type PluginRegistry, type TeamStores } from "./src/registry.js";
+import { setRegistry, registerRunSession, type PluginRegistry, type TeamStores } from "./src/registry.js";
 import type { AgentTeamsConfig } from "./src/types.js";
-import { isCliMember } from "./src/types.js";
+import { isCliMember, makeAgentId, makeRunSessionKey } from "./src/types.js";
 
 // State stores
 import { KvStore } from "./src/state/kv-store.js";
 import { EventQueue } from "./src/state/event-queue.js";
 import { DocPool } from "./src/state/doc-pool.js";
-import { RunManager } from "./src/state/run-manager.js";
+import { RunManager, TERMINAL_TASK_STATES } from "./src/state/run-manager.js";
 import { MessageStore } from "./src/state/message-store.js";
 import { ActivityLog } from "./src/state/activity-log.js";
 import { ensureDir } from "./src/state/persistence.js";
@@ -40,6 +40,7 @@ import {
   createWorkspaces,
   collectAllAgentIds,
 } from "./src/setup/agent-provisioner.js";
+import { reconcileHostRuntimeConfig } from "./src/setup/runtime-compat.js";
 
 // CLI agent support
 import { IpcServer } from "./src/cli/ipc-server.js";
@@ -125,6 +126,60 @@ export default {
 
     log.info(`Configured teams: ${teamNames.join(", ")}`);
 
+    // ── 1b. Reconcile host runtime config for OpenClaw compatibility ─
+    const compat = reconcileHostRuntimeConfig(api.config, config);
+    for (const change of compat.changes) {
+      log.info(change);
+    }
+    for (const warning of compat.warnings) {
+      log.warn(warning);
+    }
+
+    // OpenClaw only honors plugin registration performed before the first await.
+    // Publish a usable registry and register the plugin surface synchronously.
+    const teamsMap = new Map<string, TeamStores>();
+    const registry: PluginRegistry = {
+      config,
+      teams: teamsMap,
+      memberSessions: new Map(),
+      sessionIndex: new Map(),
+      sessions: new Map(),
+      sessionToAgent: new Map(),
+      getTeamStores: (team: string) => teamsMap.get(team),
+      getTeamConfig: (team: string) => config.teams[team],
+      enqueueSystemEvent: api.runtime.system.enqueueSystemEvent,
+      requestHeartbeatNow: api.runtime.system.requestHeartbeatNow as any,
+    };
+    setRegistry(registry);
+
+    // ── 1c. Register hooks/tools/commands synchronously ─────────────
+    api.on("before_agent_start", createAgentStartHook(), { priority: 10 });
+    api.on("before_compaction", createCompactionHook(), { priority: 10 });
+    api.on("subagent_spawned", createSubagentSpawnedHook(), { priority: 10 });
+    api.on("subagent_ended", createSubagentEndedHook(), { priority: 10 });
+    api.on("subagent_delivery_target", createDeliveryTargetHook(), { priority: 10 });
+
+    api.registerTool((ctx: any) => {
+      return [
+        teamRunTool(ctx),
+        teamTaskTool(ctx),
+        teamMemoryTool(ctx),
+        teamSendTool(ctx),
+        teamInboxTool(ctx),
+      ];
+    });
+
+    const commands = createTeamCommands();
+    for (const cmd of commands) {
+      api.registerCommand({
+        name: cmd.name,
+        description: cmd.description,
+        acceptsArgs: cmd.acceptsArgs,
+        requireAuth: cmd.requireAuth,
+        handler: cmd.handler,
+      });
+    }
+
     // ── 2. Resolve state directory ──────────────────────────────────
     const stateDir = path.join(
       api.runtime.state.resolveStateDir(),
@@ -139,8 +194,6 @@ export default {
     await broadcaster.init();
 
     // ── 4. Initialize stores for each team ──────────────────────────
-    const teamsMap = new Map<string, TeamStores>();
-
     for (const [teamName, teamConfig] of Object.entries(config.teams)) {
       const kvPath = path.join(stateDir, "kv", `${teamName}.json`);
       const eventsPath = path.join(stateDir, "events", `${teamName}.json`);
@@ -172,20 +225,22 @@ export default {
       ]);
 
       teamsMap.set(teamName, { kv, events, docs, runs, messages, activity });
+
+      // ── Recovery: rebuild per-run session maps from persisted runs ──
+      const workingRuns = runs.getWorkingRuns();
+      for (const run of workingRuns) {
+        for (const task of run.tasks) {
+          if (!task.assigned_to) continue;
+          if (TERMINAL_TASK_STATES.has(task.status)) continue;
+
+          const agentId = makeAgentId(teamName, task.assigned_to);
+          const sessionKey = makeRunSessionKey(agentId, run.id);
+          registerRunSession(registry, agentId, run.id, sessionKey, run.started_at);
+        }
+      }
+
       log.info(`Team "${teamName}" stores initialized (including activity log).`);
     }
-
-    // ── 5. Create and set global registry ───────────────────────────
-    const registry: PluginRegistry = {
-      config,
-      teams: teamsMap,
-      sessions: new Map(),
-      getTeamStores: (team: string) => teamsMap.get(team),
-      getTeamConfig: (team: string) => config.teams[team],
-      enqueueSystemEvent: api.runtime.system.enqueueSystemEvent,
-      requestHeartbeatNow: api.runtime.system.requestHeartbeatNow as any,
-    };
-    setRegistry(registry);
 
     // ── 6. Provision agents (in-memory injection) ───────────────────
     const provisioned = provisionAgents(config, stateDir);
@@ -229,47 +284,17 @@ export default {
       log.info(`CLI agent support enabled: ${cliMemberCount} CLI member(s) configured (on-demand spawn).`);
     }
 
-    // ── 7. Register hooks ───────────────────────────────────────────
-    api.on("before_agent_start", createAgentStartHook(), { priority: 10 });
-    api.on("before_compaction", createCompactionHook(), { priority: 10 });
-    api.on("subagent_spawned", createSubagentSpawnedHook(), { priority: 10 });
-    api.on("subagent_ended", createSubagentEndedHook(), { priority: 10 });
-    api.on("subagent_delivery_target", createDeliveryTargetHook(), { priority: 10 });
     // message_sending hook omitted — SDK's PluginHookMessageContext lacks agentId,
     // so delivery control is handled by subagent_delivery_target instead.
 
-    // ── 8. Register tools (Factory pattern) ─────────────────────────
-    api.registerTool((ctx: any) => {
-      // Return all 5 tools for any agent that might interact with teams
-      return [
-        teamRunTool(ctx),
-        teamTaskTool(ctx),
-        teamMemoryTool(ctx),
-        teamSendTool(ctx),
-        teamInboxTool(ctx),
-      ];
-    });
-
-    // ── 9. Register /team commands ──────────────────────────────────
-    const commands = createTeamCommands();
-    for (const cmd of commands) {
-      api.registerCommand({
-        name: cmd.name,
-        description: cmd.description,
-        acceptsArgs: cmd.acceptsArgs,
-        requireAuth: cmd.requireAuth,
-        handler: cmd.handler,
-      });
-    }
-
-    // ── 10. Log feature summary ─────────────────────────────────────
+    // ── 7. Log feature summary ──────────────────────────────────────
     const featureFlags: string[] = [];
     for (const [teamName, teamConfig] of Object.entries(config.teams)) {
       if (teamConfig.workflow?.gates) featureFlags.push(`${teamName}:gates`);
       if (teamConfig.workflow?.template) featureFlags.push(`${teamName}:workflow-template`);
     }
 
-    const commandCount = hasCliMembers ? 7 : 3;
+    const commandCount = 1;
     log.info(
       `Agent Teams plugin activated. ${teamNames.length} team(s), ` +
       `${provisioned.length} native agent(s)${hasCliMembers ? " + CLI agents (on-demand)" : ""}, ` +

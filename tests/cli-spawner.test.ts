@@ -40,7 +40,7 @@ describe("CliSpawner", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    spawner.killAll();
+    await spawner.killAll();
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -114,7 +114,7 @@ describe("CliSpawner", () => {
       member: "backend",
     });
 
-    spawner.killAll();
+    await spawner.killAll();
     expect(spawner.isAlive("at--dev--frontend")).toBe(false);
     expect(spawner.isAlive("at--dev--backend")).toBe(false);
   });
@@ -124,7 +124,7 @@ describe("CliSpawner", () => {
     expect(spawner.isAlive("at--dev--nobody")).toBe(false);
   });
 
-  it("should build Codex command with codex.md", async () => {
+  it("should build Codex command with codex.md in stateDir", async () => {
     const codexParams: CliSpawnParams = {
       ...baseParams,
       cli: "codex",
@@ -133,12 +133,13 @@ describe("CliSpawner", () => {
 
     await spawner.spawn(codexParams);
 
-    // Verify codex.md was written in cwd
-    const codexMd = await fs.readFile(path.join(tmpDir, "codex.md"), "utf-8");
+    // Verify codex.md was written in stateDir/cli-config/{agentId}/
+    const configDir = path.join(tmpDir, "cli-config", "at--dev--frontend");
+    const codexMd = await fs.readFile(path.join(configDir, "codex.md"), "utf-8");
     expect(codexMd).toBe("You are a frontend developer.");
   });
 
-  it("should build Gemini command with .gemini/GEMINI.md", async () => {
+  it("should build Gemini command with GEMINI.md in stateDir", async () => {
     const geminiParams: CliSpawnParams = {
       ...baseParams,
       cli: "gemini",
@@ -147,12 +148,13 @@ describe("CliSpawner", () => {
 
     await spawner.spawn(geminiParams);
 
-    // Verify .gemini/GEMINI.md was written in cwd
-    const geminiMd = await fs.readFile(path.join(tmpDir, ".gemini", "GEMINI.md"), "utf-8");
+    // Verify GEMINI.md was written in stateDir/cli-config/{agentId}/.gemini/
+    const configDir = path.join(tmpDir, "cli-config", "at--dev--frontend", ".gemini");
+    const geminiMd = await fs.readFile(path.join(configDir, "GEMINI.md"), "utf-8");
     expect(geminiMd).toBe("You are a frontend developer.");
 
-    // Verify .gemini/settings.json has MCP config
-    const settings = JSON.parse(await fs.readFile(path.join(tmpDir, ".gemini", "settings.json"), "utf-8"));
+    // Verify settings.json has MCP config
+    const settings = JSON.parse(await fs.readFile(path.join(configDir, "settings.json"), "utf-8"));
     expect(settings.mcpServers["agent-teams"]).toBeDefined();
   });
 

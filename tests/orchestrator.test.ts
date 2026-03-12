@@ -84,13 +84,9 @@ describe("buildOrchestratorContext", () => {
     expect(ctx).toContain("orchestrator");
   });
 
-  it("includes team member directory", () => {
+  it("does not duplicate team member directory (handled by prompt-builder)", () => {
     const ctx = buildOrchestratorContext(orchConfig, null);
-    expect(ctx).toContain("**lead**");
-    expect(ctx).toContain("**researcher**");
-    expect(ctx).toContain("**writer**");
-    expect(ctx).toContain("web-search");
-    expect(ctx).toContain("content-writing");
+    expect(ctx).not.toContain("Team members:");
   });
 });
 

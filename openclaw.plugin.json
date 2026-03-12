@@ -95,7 +95,41 @@
               "type": "object",
               "properties": {
                 "max_rounds": { "type": "number", "default": 10 },
-                "timeout": { "type": "number", "default": 600 }
+                "timeout": { "type": "number", "default": 600 },
+                "gates": {
+                  "type": "object",
+                  "description": "Per-status gate requirements enforced by team_task updates",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "require_deliverables": { "type": "boolean" },
+                      "require_result": { "type": "boolean" },
+                      "approver": { "type": "string" }
+                    }
+                  }
+                },
+                "template": {
+                  "type": "object",
+                  "properties": {
+                    "stages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {
+                          "name": { "type": "string" },
+                          "role": { "type": "string" },
+                          "skills": { "type": "array", "items": { "type": "string" } }
+                        }
+                      }
+                    },
+                    "fail_handlers": {
+                      "type": "object",
+                      "description": "Map a failed stage name to the stage to loop back to",
+                      "additionalProperties": { "type": "string" }
+                    }
+                  }
+                }
               }
             },
             "knowledge": {

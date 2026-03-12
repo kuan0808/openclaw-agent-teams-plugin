@@ -10,43 +10,16 @@ import { setRegistry } from "../src/registry.js";
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function sendIpcRequest(
-  sockPath: string,
+  server: IpcServer,
   request: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ path: sockPath }, () => {
-      socket.write(JSON.stringify(request) + "\n");
-    });
-
-    let buffer = "";
-    socket.on("data", (chunk) => {
-      buffer += chunk.toString();
-      const lines = buffer.split("\n");
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const response = JSON.parse(trimmed);
-          socket.end();
-          resolve(response);
-          return;
-        } catch {
-          // Incomplete
-        }
-      }
-    });
-
-    socket.on("error", reject);
-    setTimeout(() => {
-      socket.destroy();
-      reject(new Error("Timeout"));
-    }, 5000);
-  });
+  return dispatchRawLine(server, JSON.stringify(request));
 }
 
 function createMockStores(): TeamStores {
   const mockRuns = {
     getRun: vi.fn().mockReturnValue({ found: false }),
+    listRuns: vi.fn().mockReturnValue([]),
     listTasks: vi.fn().mockReturnValue([]),
     addTask: vi.fn().mockImplementation((_team: string, taskData: Record<string, unknown>) => ({
       ...taskData,
@@ -126,7 +99,10 @@ function createMockRegistry(stores: TeamStores): PluginRegistry {
       },
     },
     teams: new Map([["dev", stores]]),
+    memberSessions: new Map(),
+    sessionIndex: new Map(),
     sessions: new Map(),
+    sessionToAgent: new Map(),
     getTeamStores: (team: string) => team === "dev" ? stores : undefined,
     getTeamConfig: (team: string) => team === "dev" ? {
       description: "Dev team",
@@ -147,19 +123,34 @@ function createMockRegistry(stores: TeamStores): PluginRegistry {
 
 const tmpDir = path.join(os.tmpdir(), "at-test-ipc-" + Math.random().toString(36).slice(2));
 
+async function dispatchRawLine(
+  server: IpcServer,
+  line: string,
+): Promise<Record<string, unknown>> {
+  const writes: string[] = [];
+  const socket = {
+    write: vi.fn((chunk: string) => {
+      writes.push(chunk);
+      return true;
+    }),
+  } as unknown as net.Socket;
+
+  await (server as any).handleLine(line, socket);
+
+  expect(writes.length).toBeGreaterThan(0);
+  return JSON.parse(writes[0]!.trim()) as Record<string, unknown>;
+}
+
 describe("IpcServer", () => {
   let server: IpcServer;
-  let sockPath: string;
   let stores: TeamStores;
 
   beforeEach(async () => {
     await fs.mkdir(tmpDir, { recursive: true });
-    sockPath = path.join(tmpDir, "ipc.sock");
     stores = createMockStores();
     const registry = createMockRegistry(stores);
     setRegistry(registry);
-    server = new IpcServer(sockPath, registry);
-    await server.start();
+    server = new IpcServer("tcp://127.0.0.1:0", registry);
   });
 
   afterEach(async () => {
@@ -168,47 +159,18 @@ describe("IpcServer", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("should start and accept connections", async () => {
-    const response = await sendIpcRequest(sockPath, {
-      id: "1",
-      method: "team_run",
-      agentId: "at--dev--frontend",
-      params: { action: "status" },
-    });
-
-    expect(response.id).toBe("1");
-    expect(response.result).toBeDefined();
-    expect(response.error).toBeUndefined();
+  it("should expose the configured endpoint before start", async () => {
+    expect(server.getEndpoint()).toBe("tcp://127.0.0.1:0");
   });
 
   it("should reject invalid JSON", async () => {
-    const response = await new Promise<Record<string, unknown>>((resolve, reject) => {
-      const socket = net.createConnection({ path: sockPath }, () => {
-        socket.write("not json\n");
-      });
-      let buffer = "";
-      socket.on("data", (chunk) => {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        for (const line of lines) {
-          if (line.trim()) {
-            try {
-              resolve(JSON.parse(line.trim()));
-              socket.end();
-              return;
-            } catch { /* continue */ }
-          }
-        }
-      });
-      socket.on("error", reject);
-      setTimeout(() => { socket.destroy(); reject(new Error("Timeout")); }, 5000);
-    });
+    const response = await dispatchRawLine(server, "not json");
 
     expect(response.error).toBe("Invalid JSON");
   });
 
   it("should reject missing required fields", async () => {
-    const response = await sendIpcRequest(sockPath, {
+    const response = await sendIpcRequest(server, {
       id: "2",
       method: "team_run",
       // missing agentId
@@ -219,7 +181,7 @@ describe("IpcServer", () => {
   });
 
   it("should reject unknown methods", async () => {
-    const response = await sendIpcRequest(sockPath, {
+    const response = await sendIpcRequest(server, {
       id: "3",
       method: "unknown_tool",
       agentId: "at--dev--frontend",
@@ -231,7 +193,7 @@ describe("IpcServer", () => {
   });
 
   it("should proxy team_run status call", async () => {
-    const response = await sendIpcRequest(sockPath, {
+    const response = await sendIpcRequest(server, {
       id: "4",
       method: "team_run",
       agentId: "at--dev--frontend",
@@ -245,7 +207,7 @@ describe("IpcServer", () => {
   });
 
   it("should proxy team_run start call", async () => {
-    const response = await sendIpcRequest(sockPath, {
+    const response = await sendIpcRequest(server, {
       id: "5",
       method: "team_run",
       agentId: "at--dev--frontend",
@@ -260,7 +222,7 @@ describe("IpcServer", () => {
   });
 
   it("should proxy team_send call", async () => {
-    const response = await sendIpcRequest(sockPath, {
+    const response = await sendIpcRequest(server, {
       id: "6",
       method: "team_send",
       agentId: "at--dev--frontend",
@@ -276,7 +238,7 @@ describe("IpcServer", () => {
   });
 
   it("should proxy team_inbox call", async () => {
-    const response = await sendIpcRequest(sockPath, {
+    const response = await sendIpcRequest(server, {
       id: "7",
       method: "team_inbox",
       agentId: "at--dev--frontend",
@@ -298,7 +260,7 @@ describe("IpcServer", () => {
       ttl_remaining: null,
     });
 
-    const response = await sendIpcRequest(sockPath, {
+    const response = await sendIpcRequest(server, {
       id: "8",
       method: "team_memory",
       agentId: "at--dev--frontend",
@@ -313,7 +275,7 @@ describe("IpcServer", () => {
   });
 
   it("should handle agent ID resolution errors", async () => {
-    const response = await sendIpcRequest(sockPath, {
+    const response = await sendIpcRequest(server, {
       id: "9",
       method: "team_run",
       agentId: "invalid-agent-id",
@@ -326,7 +288,7 @@ describe("IpcServer", () => {
 
   it("should handle multiple concurrent requests", async () => {
     const promises = Array.from({ length: 5 }, (_, i) =>
-      sendIpcRequest(sockPath, {
+      sendIpcRequest(server, {
         id: String(100 + i),
         method: "team_run",
         agentId: "at--dev--frontend",

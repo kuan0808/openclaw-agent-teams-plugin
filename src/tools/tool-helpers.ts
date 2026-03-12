@@ -5,11 +5,14 @@
 import type { TaskState, TeamTask, StructuredLearning } from "../types.js";
 import type { TeamStores } from "../registry.js";
 import { resolveTeamContext, type ResolvedTeamContext } from "../context.js";
-import { getRegistry } from "../registry.js";
+import { getRegistry, resolveAgentSession } from "../registry.js";
+import { makeAgentId, makeRunSessionKey, parseRunSessionKey } from "../types.js";
 
 // ── Constants ───────────────────────────────────────────────────────────
 
 export const LEARNINGS_KEY_PREFIX = "learnings:";
+export const DESCRIPTION_PREVIEW_LEN = 80;
+export const RESULT_PREVIEW_LEN = 200;
 
 // ── Tool context ────────────────────────────────────────────────────────
 
@@ -75,6 +78,217 @@ export function restoreCounter(
     }
   }
   return counter;
+}
+
+// ── Safe sequential saves ────────────────────────────────────────────
+
+/**
+ * Execute saves sequentially, collecting errors rather than failing fast.
+ * Logs failures to stderr but does not throw.
+ */
+export async function safeSaveAll(saves: Array<Promise<void>>): Promise<void> {
+  for (const save of saves) {
+    try {
+      await save;
+    } catch (err) {
+      // Log but don't propagate — partial saves are better than no saves
+      console.error("[agent-teams] Save failed:", err);
+    }
+  }
+}
+
+// ── Auto-transition helper ──────────────────────────────────────────
+
+/**
+ * Transition all PENDING tasks assigned to a member to WORKING,
+ * logging each transition as an activity event.
+ * Saves runs + activity if any transitions occurred.
+ */
+export async function autoTransitionPendingToWorking(
+  team: string,
+  member: string,
+  stores: TeamStores,
+  runId?: string,
+): Promise<number> {
+  const runResult = stores.runs.getRun(team, runId);
+  if (!runResult.found) return 0;
+
+  const pendingTasks = runResult.run.tasks.filter(
+    (t) => t.assigned_to === member && t.status === "PENDING",
+  );
+  for (const task of pendingTasks) {
+    stores.runs.updateTask(team, task.id, { status: "WORKING" });
+    stores.activity.log(team, member, "task_updated",
+      `Task status: PENDING → WORKING`, {
+        target_id: task.id,
+        metadata: { from_status: "PENDING", to_status: "WORKING" },
+      });
+  }
+  if (pendingTasks.length > 0) {
+    await safeSaveAll([stores.runs.save(), stores.activity.save()]);
+  }
+  return pendingTasks.length;
+}
+
+export async function wakeActiveNativeAssignee(
+  team: string,
+  task: Pick<TeamTask, "id" | "description" | "assigned_to" | "status" | "run_id">,
+  stores: TeamStores,
+): Promise<boolean> {
+  if (!task.assigned_to) return false;
+
+  const registry = getRegistry();
+  const agentId = makeAgentId(team, task.assigned_to);
+
+  // Look up session key: prefer per-run session, fall back to legacy 1:1
+  const sessionKey = resolveAgentSession(registry, agentId, task.run_id);
+  if (!sessionKey) return false;
+
+  let changed = false;
+  if (task.status === "PENDING") {
+    const updated = stores.runs.updateTask(team, task.id, {
+      status: "WORKING",
+      message: `Assigned to ${task.assigned_to}; session notified.`,
+    });
+    if (updated) {
+      stores.activity.log(team, task.assigned_to, "task_updated",
+        "Task status: PENDING → WORKING", {
+          target_id: task.id,
+          metadata: {
+            from_status: "PENDING",
+            to_status: "WORKING",
+            auto_notified: true,
+          },
+        });
+      changed = true;
+    }
+  }
+
+  registry.enqueueSystemEvent(
+    `[Team Update] New team task assigned to you: ${task.id} — ${task.description.slice(0, 160)}. Check team_task(action: query, filter: "mine") and team_inbox for details.`,
+    { sessionKey },
+  );
+  registry.requestHeartbeatNow({
+    agentId,
+    reason: "task-assigned",
+    sessionKey,
+  });
+
+  if (changed) {
+    await safeSaveAll([stores.runs.save(), stores.activity.save()]);
+  }
+
+  return true;
+}
+
+export function sanitizeDocumentKey(
+  key: string,
+): { key: string; changed: boolean } {
+  const sanitized = key
+    .trim()
+    .replace(/[\\/]+/g, "_")
+    .replace(/\.\./g, "_");
+
+  return {
+    key: sanitized.length > 0 ? sanitized : "document",
+    changed: sanitized !== key,
+  };
+}
+
+// ── Knowledge helpers ───────────────────────────────────────────────
+
+/**
+ * Clear all learning entries from KV store (for retention: "current-run").
+ */
+export function clearLearnings(
+  kv: { iterEntries(): IterableIterator<[string, { key: string; value: unknown }]>; delete(key: string): boolean },
+): number {
+  const keysToDelete: string[] = [];
+  for (const [, entry] of kv.iterEntries()) {
+    if (entry.key.startsWith(LEARNINGS_KEY_PREFIX)) {
+      keysToDelete.push(entry.key);
+    }
+  }
+  for (const key of keysToDelete) {
+    kv.delete(key);
+  }
+  return keysToDelete.length;
+}
+
+/**
+ * Consolidate learnings from a completed run into a summary entry.
+ */
+export function consolidateLearnings(
+  kv: {
+    iterEntries(): IterableIterator<[string, { key: string; value: unknown }]>;
+    set(key: string, value: unknown, writtenBy: string): { ok: true; replaced: boolean };
+  },
+  runId: string,
+): { count: number; categories: Record<string, number> } {
+  const learnings = collectLearnings(kv, 50); // Collect up to 50 for consolidation
+  if (learnings.length === 0) return { count: 0, categories: {} };
+
+  // Group by category
+  const byCategory: Record<string, Array<{ key: string; value: string; confidence?: number }>> = {};
+  for (const l of learnings) {
+    const cat = l.category ?? "uncategorized";
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat]!.push(l);
+  }
+
+  // Build consolidated summary
+  const categories: Record<string, number> = {};
+  const summaryParts: string[] = [];
+  for (const [cat, items] of Object.entries(byCategory)) {
+    categories[cat] = items.length;
+    // Pick top entries by confidence (already sorted)
+    const top = items.slice(0, 5);
+    summaryParts.push(`## ${cat}\n${top.map((i) => `- ${i.value}`).join("\n")}`);
+  }
+
+  const summary = {
+    run_id: runId,
+    total: learnings.length,
+    categories,
+    content: summaryParts.join("\n\n"),
+    consolidated_at: Date.now(),
+  };
+
+  kv.set(`learnings:consolidated:${runId}`, summary, "system");
+
+  return { count: learnings.length, categories };
+}
+
+// ── Requester notification ──────────────────────────────────────────────
+
+/**
+ * Push a system event notification to the original requester (Main Agent)
+ * who started the team run. Uses the stored `requester_session` on the run.
+ *
+ * When runId is provided, notifies the requester of that specific run.
+ * Otherwise falls back to the single active run.
+ */
+export function notifyRequester(team: string, message: string, runId?: string): void {
+  const registry = getRegistry();
+  const stores = registry.getTeamStores(team);
+  if (!stores) return;
+  const run = stores.runs.getRun(team, runId);
+  if (!run.found || !run.run.requester_session) return;
+  registry.enqueueSystemEvent(
+    `[${team} Team] ${message}`,
+    { sessionKey: run.run.requester_session },
+  );
+  registry.requestHeartbeatNow({ sessionKey: run.run.requester_session });
+}
+
+/**
+ * Resolve the runId from a caller's sessionKey.
+ * Returns undefined if the sessionKey doesn't encode a run.
+ */
+export function resolveRunIdFromSession(sessionKey?: string): string | undefined {
+  if (!sessionKey) return undefined;
+  const parsed = parseRunSessionKey(sessionKey);
+  return parsed?.runId;
 }
 
 // ── Result helpers ──────────────────────────────────────────────────────

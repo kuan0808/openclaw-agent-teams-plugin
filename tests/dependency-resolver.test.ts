@@ -114,16 +114,16 @@ describe("cascadeCancelDependents", () => {
     expect(tasks[2]!.status).toBe("CANCELED");
   });
 
-  it("doesn't cancel WORKING tasks", () => {
+  it("cancels WORKING tasks (auto-WORKING means not yet meaningfully started)", () => {
     const tasks = [
       makeTask("t1", "CANCELED"),
-      makeTask("t2", "WORKING", ["t1"]),  // already working — should NOT cancel
+      makeTask("t2", "WORKING", ["t1"]),  // auto-WORKING — should cancel
       makeTask("t3", "BLOCKED", ["t1"]),  // blocked — should cancel
     ];
 
     const canceled = cascadeCancelDependents(tasks, "t1");
-    expect(canceled).toHaveLength(1);
-    expect(tasks[1]!.status).toBe("WORKING");
+    expect(canceled).toHaveLength(2);
+    expect(tasks[1]!.status).toBe("CANCELED");
     expect(tasks[2]!.status).toBe("CANCELED");
   });
 });

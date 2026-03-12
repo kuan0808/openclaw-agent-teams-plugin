@@ -44,14 +44,23 @@ describe("RunManager", () => {
     expect(result).toEqual({ found: false });
   });
 
+  it("getRun finds run by explicit runId", () => {
+    const { run_id } = mgr.startRun("team-a", "Find me");
+    const result = mgr.getRun("team-a", run_id);
+    expect(result.found).toBe(true);
+    if (result.found) {
+      expect(result.run.goal).toBe("Find me");
+    }
+  });
+
   // ── addTask ──────────────────────────────────────────────────────────
 
   it("addTask adds task to current run", () => {
-    mgr.startRun("team-a", "Goal");
+    const { run_id } = mgr.startRun("team-a", "Goal");
     const task = mgr.addTask("team-a", {
       id: "task-1",
       team: "team-a",
-      run_id: "tr-1",
+      run_id,
       description: "Do something",
       status: "PENDING",
     });
@@ -61,14 +70,27 @@ describe("RunManager", () => {
     expect(task.created_at).toBeGreaterThan(0);
   });
 
+  it("addTask falls back to the single active run when run_id is omitted", () => {
+    mgr.startRun("team-a", "Goal");
+    const task = mgr.addTask("team-a", {
+      id: "task-fallback",
+      team: "team-a",
+      run_id: "",        // empty string — resolveRun treats falsy as "no id"
+      description: "Fallback task",
+      status: "PENDING",
+    });
+    expect(task.id).toBe("task-fallback");
+    expect(task.run_id).toMatch(/^tr-/);
+  });
+
   // ── updateTask ───────────────────────────────────────────────────────
 
   it("updateTask updates task fields", () => {
-    mgr.startRun("team-a", "Goal");
+    const { run_id } = mgr.startRun("team-a", "Goal");
     mgr.addTask("team-a", {
       id: "task-1",
       team: "team-a",
-      run_id: "tr-1",
+      run_id,
       description: "Do something",
       status: "PENDING",
     });
@@ -85,11 +107,11 @@ describe("RunManager", () => {
   // ── getTask ──────────────────────────────────────────────────────────
 
   it("getTask finds task by id", () => {
-    mgr.startRun("team-a", "Goal");
+    const { run_id } = mgr.startRun("team-a", "Goal");
     mgr.addTask("team-a", {
       id: "task-1",
       team: "team-a",
-      run_id: "tr-1",
+      run_id,
       description: "Do something",
       status: "PENDING",
     });
@@ -102,13 +124,13 @@ describe("RunManager", () => {
   // ── listTasks ────────────────────────────────────────────────────────
 
   it("listTasks returns all tasks", () => {
-    mgr.startRun("team-a", "Goal");
+    const { run_id } = mgr.startRun("team-a", "Goal");
     mgr.addTask("team-a", {
-      id: "t1", team: "team-a", run_id: "tr-1",
+      id: "t1", team: "team-a", run_id,
       description: "Task 1", status: "PENDING",
     });
     mgr.addTask("team-a", {
-      id: "t2", team: "team-a", run_id: "tr-1",
+      id: "t2", team: "team-a", run_id,
       description: "Task 2", status: "WORKING",
     });
 
@@ -117,17 +139,17 @@ describe("RunManager", () => {
   });
 
   it("listTasks filters by status", () => {
-    mgr.startRun("team-a", "Goal");
+    const { run_id } = mgr.startRun("team-a", "Goal");
     mgr.addTask("team-a", {
-      id: "t1", team: "team-a", run_id: "tr-1",
+      id: "t1", team: "team-a", run_id,
       description: "Task 1", status: "PENDING",
     });
     mgr.addTask("team-a", {
-      id: "t2", team: "team-a", run_id: "tr-1",
+      id: "t2", team: "team-a", run_id,
       description: "Task 2", status: "WORKING",
     });
     mgr.addTask("team-a", {
-      id: "t3", team: "team-a", run_id: "tr-1",
+      id: "t3", team: "team-a", run_id,
       description: "Task 3", status: "COMPLETED",
     });
 
@@ -155,20 +177,35 @@ describe("RunManager", () => {
     }
   });
 
+  it("completeRun rejects runs with non-terminal tasks", () => {
+    const { run_id } = mgr.startRun("team-a", "Goal");
+    mgr.addTask("team-a", {
+      id: "t1",
+      team: "team-a",
+      run_id,
+      description: "Task 1",
+      status: "WORKING",
+    });
+
+    expect(() => mgr.completeRun("team-a", "Too early")).toThrow(
+      /non-terminal tasks/i,
+    );
+  });
+
   // ── cancelRun ────────────────────────────────────────────────────────
 
   it("cancelRun cancels PENDING/WORKING tasks", () => {
-    mgr.startRun("team-a", "Goal");
+    const { run_id } = mgr.startRun("team-a", "Goal");
     mgr.addTask("team-a", {
-      id: "t1", team: "team-a", run_id: "tr-1",
+      id: "t1", team: "team-a", run_id,
       description: "Task 1", status: "PENDING",
     });
     mgr.addTask("team-a", {
-      id: "t2", team: "team-a", run_id: "tr-1",
+      id: "t2", team: "team-a", run_id,
       description: "Task 2", status: "WORKING",
     });
     mgr.addTask("team-a", {
-      id: "t3", team: "team-a", run_id: "tr-1",
+      id: "t3", team: "team-a", run_id,
       description: "Task 3", status: "COMPLETED",
     });
 
@@ -188,9 +225,9 @@ describe("RunManager", () => {
   it("save/load roundtrip", async () => {
     const dir = path.join(tmpDir, "persist-runs");
     const m1 = new RunManager(dir);
-    m1.startRun("team-a", "Persist test", "lead");
+    const { run_id } = m1.startRun("team-a", "Persist test", "lead");
     m1.addTask("team-a", {
-      id: "t1", team: "team-a", run_id: "tr-1",
+      id: "t1", team: "team-a", run_id,
       description: "Task 1", status: "PENDING",
     });
     await m1.save();
@@ -205,5 +242,154 @@ describe("RunManager", () => {
       expect(run.run.tasks).toHaveLength(1);
       expect(run.run.tasks[0]!.id).toBe("t1");
     }
+  });
+
+  it("save/load writes to active/<runId>.json, not current.json", async () => {
+    const dir = path.join(tmpDir, "active-path-runs");
+    const m1 = new RunManager(dir);
+    const { run_id } = m1.startRun("team-a", "Active path test");
+    await m1.save();
+
+    // File must exist at active/<runId>.json
+    const activeFile = path.join(dir, "active", `${run_id}.json`);
+    await expect(fs.access(activeFile)).resolves.toBeUndefined();
+
+    // Legacy current.json must NOT be written
+    const legacyFile = path.join(dir, "current.json");
+    await expect(fs.access(legacyFile)).rejects.toThrow();
+  });
+
+  // ── Concurrent runs ──────────────────────────────────────────────────
+
+  it("supports multiple concurrent WORKING runs", () => {
+    const r1 = mgr.startRun("team-a", "Run 1");
+    const r2 = mgr.startRun("team-a", "Run 2");
+
+    expect(r1.run_id).not.toBe(r2.run_id);
+
+    const runs = mgr.listRuns();
+    expect(runs).toHaveLength(2);
+    expect(mgr.getWorkingRuns()).toHaveLength(2);
+  });
+
+  it("addTask routes to the correct run when multiple runs are active", () => {
+    const r1 = mgr.startRun("team-a", "Run 1");
+    const r2 = mgr.startRun("team-a", "Run 2");
+
+    mgr.addTask("team-a", {
+      id: "task-for-r1", team: "team-a", run_id: r1.run_id,
+      description: "Belongs to run 1", status: "PENDING",
+    });
+    mgr.addTask("team-a", {
+      id: "task-for-r2", team: "team-a", run_id: r2.run_id,
+      description: "Belongs to run 2", status: "PENDING",
+    });
+
+    const tasks1 = mgr.listTasks("team-a", undefined, r1.run_id);
+    const tasks2 = mgr.listTasks("team-a", undefined, r2.run_id);
+
+    expect(tasks1).toHaveLength(1);
+    expect(tasks1[0]!.id).toBe("task-for-r1");
+    expect(tasks2).toHaveLength(1);
+    expect(tasks2[0]!.id).toBe("task-for-r2");
+  });
+
+  it("listTasks without runId aggregates across all concurrent runs", () => {
+    const r1 = mgr.startRun("team-a", "Run 1");
+    const r2 = mgr.startRun("team-a", "Run 2");
+
+    mgr.addTask("team-a", {
+      id: "t-r1", team: "team-a", run_id: r1.run_id,
+      description: "In run 1", status: "PENDING",
+    });
+    mgr.addTask("team-a", {
+      id: "t-r2", team: "team-a", run_id: r2.run_id,
+      description: "In run 2", status: "WORKING",
+    });
+
+    const all = mgr.listTasks("team-a");
+    expect(all).toHaveLength(2);
+  });
+
+  it("completeRun targets specific run by runId when multiple are active", () => {
+    const r1 = mgr.startRun("team-a", "Run 1");
+    mgr.startRun("team-a", "Run 2");
+
+    const result = mgr.completeRun("team-a", "Run 1 done", r1.run_id);
+    expect(result).toEqual({ ok: true, status: "COMPLETED" });
+
+    // run 1 completed, run 2 still WORKING
+    const run1 = mgr.getRun("team-a", r1.run_id);
+    expect(run1.found).toBe(true);
+    if (run1.found) expect(run1.run.status).toBe("COMPLETED");
+
+    expect(mgr.getWorkingRuns()).toHaveLength(1);
+  });
+
+  it("cancelRun targets specific run by runId when multiple are active", () => {
+    const r1 = mgr.startRun("team-a", "Run 1");
+    const r2 = mgr.startRun("team-a", "Run 2");
+
+    mgr.addTask("team-a", {
+      id: "t-r1", team: "team-a", run_id: r1.run_id,
+      description: "Run 1 task", status: "PENDING",
+    });
+    mgr.addTask("team-a", {
+      id: "t-r2", team: "team-a", run_id: r2.run_id,
+      description: "Run 2 task", status: "PENDING",
+    });
+
+    mgr.cancelRun("team-a", "Cancel run 1", r1.run_id);
+
+    expect(mgr.getTask("team-a", "t-r1")!.status).toBe("CANCELED");
+    expect(mgr.getTask("team-a", "t-r2")!.status).toBe("PENDING"); // untouched
+    expect(mgr.getWorkingRuns()).toHaveLength(1);
+  });
+
+  it("save/load roundtrip preserves multiple concurrent runs", async () => {
+    const dir = path.join(tmpDir, "concurrent-persist");
+    const m1 = new RunManager(dir);
+    const r1 = m1.startRun("team-a", "Concurrent run 1");
+    const r2 = m1.startRun("team-a", "Concurrent run 2");
+
+    m1.addTask("team-a", {
+      id: "ta", team: "team-a", run_id: r1.run_id,
+      description: "Task A", status: "PENDING",
+    });
+    m1.addTask("team-a", {
+      id: "tb", team: "team-a", run_id: r2.run_id,
+      description: "Task B", status: "WORKING",
+    });
+    await m1.save();
+
+    const m2 = new RunManager(dir);
+    await m2.load();
+
+    expect(m2.listRuns()).toHaveLength(2);
+    expect(m2.getTask("team-a", "ta")).toBeDefined();
+    expect(m2.getTask("team-a", "tb")).toBeDefined();
+  });
+
+  it("getRunForTask returns the run that owns the task", () => {
+    const r1 = mgr.startRun("team-a", "Run 1");
+    const r2 = mgr.startRun("team-a", "Run 2");
+
+    mgr.addTask("team-a", {
+      id: "t-owned", team: "team-a", run_id: r2.run_id,
+      description: "Owned by run 2", status: "PENDING",
+    });
+
+    const owningRun = mgr.getRunForTask("t-owned");
+    expect(owningRun).toBeDefined();
+    expect(owningRun!.id).toBe(r2.run_id);
+  });
+
+  it("removeRun deletes the run from active set", () => {
+    const { run_id } = mgr.startRun("team-a", "To be removed");
+    expect(mgr.listRuns()).toHaveLength(1);
+
+    const removed = mgr.removeRun(run_id);
+    expect(removed).toBe(true);
+    expect(mgr.listRuns()).toHaveLength(0);
   });
 });

@@ -1,8 +1,12 @@
 /**
- * IPC Server — Unix domain socket server for CLI agent tool proxy.
+ * IPC Server — local transport server for CLI agent tool proxy.
  *
- * Starts a JSON-RPC server on `{stateDir}/ipc.sock`. CLI agents communicate
- * with the main plugin process through MCP bridge → IPC socket → tool execution.
+ * Starts a JSON-RPC server on either:
+ * - a Unix domain socket path like `{stateDir}/ipc.sock`
+ * - a loopback TCP endpoint like `tcp://127.0.0.1:4567`
+ *
+ * CLI agents communicate with the main plugin process through
+ * MCP bridge → IPC transport → tool execution.
  *
  * Delegates to the actual tool factory functions (teamRunTool, teamTaskTool, etc.)
  * to ensure behavioral parity with native subagents (gates, workflow templates,
@@ -15,7 +19,7 @@
 
 import * as net from "node:net";
 import * as fs from "node:fs";
-import type { PluginRegistry } from "../registry.js";
+import { type PluginRegistry, resolveAgentSession } from "../registry.js";
 import { parseAgentId, makeAgentId } from "../types.js";
 
 // Import tool factories — single source of truth for all tool logic
@@ -60,18 +64,28 @@ const VALID_METHODS = new Set<string>(Object.keys(TOOL_FACTORIES));
 export class IpcServer {
   private server: net.Server | null = null;
   private connections: Set<net.Socket> = new Set();
+  private effectiveEndpoint: string;
 
   constructor(
     private sockPath: string,
     private registry: PluginRegistry,
-  ) {}
+  ) {
+    this.effectiveEndpoint = sockPath;
+  }
+
+  getEndpoint(): string {
+    return this.effectiveEndpoint;
+  }
 
   async start(): Promise<void> {
-    // Clean up stale socket file
-    try {
-      fs.unlinkSync(this.sockPath);
-    } catch {
-      // Ignore if doesn't exist
+    const endpoint = parseEndpoint(this.sockPath);
+
+    if (endpoint.kind === "unix") {
+      try {
+        fs.unlinkSync(endpoint.path);
+      } catch {
+        // Ignore if it doesn't exist
+      }
     }
 
     return new Promise((resolve, reject) => {
@@ -103,7 +117,21 @@ export class IpcServer {
 
       this.server.on("error", reject);
 
-      this.server.listen(this.sockPath, () => {
+      if (endpoint.kind === "unix") {
+        this.server.listen(endpoint.path, () => {
+          this.effectiveEndpoint = endpoint.path;
+          resolve();
+        });
+        return;
+      }
+
+      this.server.listen(endpoint.port, endpoint.host, () => {
+        const address = this.server?.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("Failed to resolve TCP IPC address."));
+          return;
+        }
+        this.effectiveEndpoint = `tcp://${address.address}:${address.port}`;
         resolve();
       });
     });
@@ -121,11 +149,13 @@ export class IpcServer {
         return;
       }
       this.server.close(() => {
-        // Clean up socket file
-        try {
-          fs.unlinkSync(this.sockPath);
-        } catch {
-          // Ignore
+        const endpoint = parseEndpoint(this.sockPath);
+        if (endpoint.kind === "unix") {
+          try {
+            fs.unlinkSync(endpoint.path);
+          } catch {
+            // Ignore
+          }
         }
         resolve();
       });
@@ -191,7 +221,7 @@ export class IpcServer {
     if (!teamConfig?.orchestrator) return;
 
     const orchId = makeAgentId(team, teamConfig.orchestrator);
-    const orchSession = this.registry.sessions.get(orchId);
+    const orchSession = resolveAgentSession(this.registry, orchId);
     if (!orchSession) return;
 
     const taskRef = taskId ? ` task ${taskId}` : "";
@@ -227,4 +257,26 @@ export class IpcServer {
 
     return details;
   }
+}
+
+type IpcEndpoint =
+  | { kind: "unix"; path: string }
+  | { kind: "tcp"; host: string; port: number };
+
+function parseEndpoint(endpoint: string): IpcEndpoint {
+  if (!endpoint.startsWith("tcp://")) {
+    return { kind: "unix", path: endpoint };
+  }
+
+  const parsed = new URL(endpoint);
+  const port = Number(parsed.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`Invalid IPC TCP endpoint: ${endpoint}`);
+  }
+
+  return {
+    kind: "tcp",
+    host: parsed.hostname || "127.0.0.1",
+    port,
+  };
 }

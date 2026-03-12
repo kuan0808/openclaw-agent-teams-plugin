@@ -6,6 +6,7 @@
  */
 
 import type { TeamConfig, TeamRun } from "../types.js";
+import { countByStatus } from "../tools/tool-helpers.js";
 
 /**
  * Build the orchestrator's supplementary prepend context.
@@ -26,36 +27,26 @@ export function buildOrchestratorContext(
     `Your role: ${teamConfig.members[orchestrator!]?.role ?? "Coordinate team work and deliver results."}`,
   );
 
-  // Team member directory with skills
-  const memberLines = Object.entries(teamConfig.members).map(([key, cfg]) => {
-    const skills = cfg.skills?.length ? ` [${cfg.skills.join(", ")}]` : "";
-    const marker = key === orchestrator ? " (you)" : "";
-    return `- **${key}**${marker}: ${cfg.role ?? "member"}${skills}`;
-  });
-  sections.push(`\nTeam members:\n${memberLines.join("\n")}`);
-
-  // Core orchestrator rules
+  // Core orchestrator rules (directory is already in prompt-builder)
   sections.push(`
 ### Orchestrator Rules
 1. **Delegate, don't do.** Use \`team_task\` to assign work to specialists.
 2. **Track progress.** Query task status regularly and unblock dependents.
-3. **Consolidate results.** Gather outputs from completed tasks before reporting.
-4. **Use team_memory** to share context that multiple members need.
-5. **Use team_send** for targeted follow-ups or clarifications.
-6. **Complete the run** with \`team_run\` (action: complete) once all tasks are done.`);
+3. **Report progress.** When a member completes a task, briefly summarize what was done and what remains.
+4. **Consolidate results.** Gather outputs from completed tasks before reporting.
+5. **Use team_memory** to share context that multiple members need.
+6. **Use team_send** for targeted follow-ups or clarifications.
+7. **Complete the run** with \`team_run\` (action: complete) once all tasks are done.`);
 
   // Run-specific context
   if (run && run.status === "WORKING") {
-    const pending = run.tasks.filter((t) => t.status === "PENDING").length;
-    const working = run.tasks.filter((t) => t.status === "WORKING").length;
-    const completed = run.tasks.filter((t) => t.status === "COMPLETED").length;
-    const blocked = run.tasks.filter((t) => t.status === "BLOCKED").length;
+    const counts = countByStatus(run.tasks);
     const total = run.tasks.length;
 
     sections.push(
       `\n### Current Run: ${run.id}`,
       `Goal: ${run.goal}`,
-      `Progress: ${completed}/${total} completed, ${working} working, ${pending} pending, ${blocked} blocked`,
+      `Progress: ${counts.COMPLETED}/${total} completed, ${counts.WORKING} working, ${counts.PENDING} pending, ${counts.BLOCKED} blocked`,
     );
   }
 

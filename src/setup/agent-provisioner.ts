@@ -1,8 +1,8 @@
 /**
  * Agent Provisioner — auto-generate AgentConfig entries for team members.
  *
- * Reads team config and injects agents into the runtime config's agents.list
- * (in-memory only, no disk writes).
+ * Injects agents into the runtime config's agents.list AND persists them
+ * to disk so that loadConfig() always includes team agents.
  */
 
 import * as path from "node:path";
@@ -138,6 +138,9 @@ export function injectAgents(
     runtimeConfig.tools.agentToAgent = {};
   }
   const a2a = runtimeConfig.tools.agentToAgent;
+  if (!a2a.enabled) {
+    a2a.enabled = true;
+  }
   if (!Array.isArray(a2a.allow)) {
     a2a.allow = [];
   }
@@ -149,7 +152,54 @@ export function injectAgents(
     }
   }
 
+  // Clean up invalid defaults key left behind by previous plugin versions.
+  if (runtimeConfig.agents?.defaults?.subagents?.allowAgents !== undefined) {
+    delete runtimeConfig.agents.defaults.subagents.allowAgents;
+    if (Object.keys(runtimeConfig.agents.defaults.subagents).length === 0) {
+      delete runtimeConfig.agents.defaults.subagents;
+    }
+  }
+
   return injected;
+}
+
+/**
+ * Persist injected agents to the config file on disk.
+ *
+ * This is critical because OpenClaw's loadConfig() re-reads from disk on
+ * config refreshes, which would lose in-memory-only agent injections.
+ * By writing to disk, team agents survive config reloads.
+ *
+ * Uses JSON5 to preserve the existing config format.
+ */
+export async function persistAgentsToDisk(
+  configPath: string,
+  agents: ProvisionedAgent[],
+  allAgentIds?: string[],
+  log?: { info: (msg: string) => void; warn: (msg: string) => void },
+): Promise<void> {
+  const fs = await import("node:fs");
+  const JSON5 = await import("json5");
+
+  if (!fs.existsSync(configPath)) {
+    log?.warn(`Config file not found at ${configPath}, skipping disk persist.`);
+    return;
+  }
+
+  const raw = fs.readFileSync(configPath, "utf-8");
+  const diskConfig = JSON5.parse(raw);
+
+  // Inject agents (modifies diskConfig in-place)
+  const injected = injectAgents(diskConfig, agents, allAgentIds);
+
+  if (injected.length === 0) {
+    log?.info("All team agents already present in disk config.");
+    return;
+  }
+
+  // Write back as JSON with 2-space indent (preserves readability)
+  fs.writeFileSync(configPath, JSON.stringify(diskConfig, null, 2) + "\n", "utf-8");
+  log?.info(`Persisted ${injected.length} team agents to ${configPath}.`);
 }
 
 /**

@@ -10,6 +10,7 @@
     "build:mcp-bridge": "tsc -p tsconfig.mcp-bridge.json",
     "dev": "tsc --watch",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.config.e2e.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

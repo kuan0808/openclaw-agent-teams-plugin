@@ -5,7 +5,8 @@
  */
 
 import { Type, type Static } from "@sinclair/typebox";
-import { textResult, errorResult, resolveToolContext, LEARNINGS_KEY_PREFIX, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, safeSaveAll, LEARNINGS_KEY_PREFIX, sanitizeDocumentKey, type ToolContext } from "./tool-helpers.js";
+import { getRegistry } from "../registry.js";
 import type { TeamStores } from "../registry.js";
 import type { ResolvedTeamContext } from "../context.js";
 
@@ -86,6 +87,15 @@ export function teamMemoryTool(ctx: ToolContext) {
       if (!resolved.ok) return resolved.error;
       const { teamCtx, stores } = resolved;
 
+      // Check shared_memory.enabled guard
+      const registry = getRegistry();
+      const teamConfig = registry.getTeamConfig(teamCtx.team);
+      if (teamConfig?.shared_memory?.enabled === false) {
+        return errorResult(
+          `Shared memory is disabled for team "${teamCtx.team}". Enable it in team config with shared_memory.enabled: true.`,
+        );
+      }
+
       const storeName = params.store ?? "kv";
 
       // ── KV Store ──────────────────────────────────────────────────
@@ -129,7 +139,7 @@ export function teamMemoryTool(ctx: ToolContext) {
 
             const result = kv.set(params.key, parsedValue, teamCtx.member, params.ttl);
             logMemoryUpdate(stores, teamCtx, "kv", "set", params.key);
-            await Promise.all([kv.save(), stores.activity.save()]);
+            await safeSaveAll([kv.save(), stores.activity.save()]);
 
             return textResult({
               ok: true,
@@ -146,7 +156,7 @@ export function teamMemoryTool(ctx: ToolContext) {
             }
             const deleted = kv.delete(params.key);
             logMemoryUpdate(stores, teamCtx, "kv", "delete", params.key, { deleted });
-            await Promise.all([kv.save(), stores.activity.save()]);
+            await safeSaveAll([kv.save(), stores.activity.save()]);
 
             return textResult({
               ok: true,
@@ -180,17 +190,22 @@ export function teamMemoryTool(ctx: ToolContext) {
             if (!params.key) {
               return errorResult("Parameter 'key' is required for action=get.");
             }
-            const result = await docs.get(params.key);
+            const normalized = sanitizeDocumentKey(params.key);
+            const result = await docs.get(normalized.key);
             if (!result.found) {
-              return textResult({ found: false, key: params.key });
+              return textResult({ found: false, key: normalized.key });
             }
-            return textResult({
+            const payload: Record<string, unknown> = {
               found: true,
-              key: params.key,
+              key: normalized.key,
               content: result.value,
               content_type: result.content_type,
               written_by: result.written_by,
-            });
+            };
+            if (normalized.changed) {
+              payload.warning = `Document key was sanitized from "${params.key}" to "${normalized.key}".`;
+            }
+            return textResult(payload);
           }
 
           case "set": {
@@ -202,32 +217,48 @@ export function teamMemoryTool(ctx: ToolContext) {
             }
 
             const contentType = params.content_type ?? "text/plain";
-            const result = await docs.set(params.key, params.value, contentType, teamCtx.member);
-            logMemoryUpdate(stores, teamCtx, "docs", "set", params.key, { content_type: contentType });
-            await Promise.all([docs.save(), stores.activity.save()]);
+            const normalized = sanitizeDocumentKey(params.key);
+            const result = await docs.set(normalized.key, params.value, contentType, teamCtx.member);
+            logMemoryUpdate(stores, teamCtx, "docs", "set", normalized.key, {
+              content_type: contentType,
+              original_key: normalized.changed ? params.key : undefined,
+            });
+            await safeSaveAll([docs.save(), stores.activity.save()]);
 
-            return textResult({
+            const payload: Record<string, unknown> = {
               ok: true,
-              key: params.key,
+              key: normalized.key,
               content_type: contentType,
               size_bytes: result.size_bytes,
               written_by: teamCtx.member,
-            });
+            };
+            if (normalized.changed) {
+              payload.warning = `Document key was sanitized from "${params.key}" to "${normalized.key}".`;
+            }
+            return textResult(payload);
           }
 
           case "delete": {
             if (!params.key) {
               return errorResult("Parameter 'key' is required for action=delete.");
             }
-            const deleted = await docs.delete(params.key);
-            logMemoryUpdate(stores, teamCtx, "docs", "delete", params.key, { deleted });
-            await Promise.all([docs.save(), stores.activity.save()]);
-
-            return textResult({
-              ok: true,
-              key: params.key,
+            const normalized = sanitizeDocumentKey(params.key);
+            const deleted = await docs.delete(normalized.key);
+            logMemoryUpdate(stores, teamCtx, "docs", "delete", normalized.key, {
               deleted,
+              original_key: normalized.changed ? params.key : undefined,
             });
+            await safeSaveAll([docs.save(), stores.activity.save()]);
+
+            const payload: Record<string, unknown> = {
+              ok: true,
+              key: normalized.key,
+              deleted,
+            };
+            if (normalized.changed) {
+              payload.warning = `Document key was sanitized from "${params.key}" to "${normalized.key}".`;
+            }
+            return textResult(payload);
           }
 
           case "list": {

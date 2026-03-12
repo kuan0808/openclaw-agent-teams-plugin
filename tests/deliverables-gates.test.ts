@@ -8,12 +8,13 @@ const tmpDir = path.join(os.tmpdir(), "at-test-deliv-" + Math.random().toString(
 
 describe("Deliverables & Gates (RunManager)", () => {
   let runs: RunManager;
+  let runId: string;
 
   beforeEach(async () => {
     await fs.mkdir(tmpDir, { recursive: true });
     runs = new RunManager(path.join(tmpDir, "runs"));
     await runs.load();
-    runs.startRun("dev", "Test goal");
+    ({ run_id: runId } = runs.startRun("dev", "Test goal"));
   });
 
   afterEach(async () => {
@@ -26,7 +27,7 @@ describe("Deliverables & Gates (RunManager)", () => {
     runs.addTask("dev", {
       id: "task-1",
       team: "dev",
-      run_id: "tr-001",
+      run_id: runId,
       description: "Build feature",
       status: "WORKING",
     });
@@ -47,7 +48,7 @@ describe("Deliverables & Gates (RunManager)", () => {
     runs.addTask("dev", {
       id: "task-1",
       team: "dev",
-      run_id: "tr-001",
+      run_id: runId,
       description: "Build feature",
       status: "WORKING",
     });
@@ -74,7 +75,7 @@ describe("Deliverables & Gates (RunManager)", () => {
     runs.addTask("dev", {
       id: "task-1",
       team: "dev",
-      run_id: "tr-001",
+      run_id: runId,
       description: "Analysis",
       status: "WORKING",
     });
@@ -94,7 +95,7 @@ describe("Deliverables & Gates (RunManager)", () => {
     runs.addTask("dev", {
       id: "task-1",
       team: "dev",
-      run_id: "tr-001",
+      run_id: runId,
       description: "Test task",
       status: "WORKING",
     });
@@ -121,7 +122,7 @@ describe("Deliverables & Gates (RunManager)", () => {
     runs.addTask("dev", {
       id: "task-1",
       team: "dev",
-      run_id: "tr-001",
+      run_id: runId,
       description: "Stage task",
       status: "PENDING",
     });
@@ -139,7 +140,7 @@ describe("Deliverables & Gates (RunManager)", () => {
     runs.addTask("dev", {
       id: "task-1",
       team: "dev",
-      run_id: "tr-001",
+      run_id: runId,
       description: "Persist test",
       status: "WORKING",
     });

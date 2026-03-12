@@ -38,10 +38,29 @@ export class DocPool {
   private allowedTypes: string[];
 
   constructor(baseDir: string, config?: DocPoolConfig) {
-    this.baseDir = baseDir;
-    this.indexPath = path.join(baseDir, "_index.json");
+    this.baseDir = path.resolve(baseDir);
+    this.indexPath = path.join(this.baseDir, "_index.json");
     this.maxSizeMb = config?.max_size_mb ?? DEFAULT_MAX_SIZE_MB;
     this.allowedTypes = config?.allowed_types ?? DEFAULT_ALLOWED_TYPES;
+  }
+
+  /**
+   * Validate a document key to prevent path traversal attacks.
+   * Rejects keys containing `..`, `/`, or `\`.
+   */
+  private validateKey(key: string): void {
+    if (key.includes("..") || key.includes("/") || key.includes("\\")) {
+      throw new Error(
+        `Invalid document key "${key}": must not contain "..", "/", or "\\".`,
+      );
+    }
+    // Also verify the resolved path stays within baseDir
+    const resolved = path.resolve(this.baseDir, key);
+    if (!resolved.startsWith(this.baseDir)) {
+      throw new Error(
+        `Invalid document key "${key}": resolved path escapes base directory.`,
+      );
+    }
   }
 
   // ── Disk I/O ────────────────────────────────────────────────────────
@@ -63,6 +82,8 @@ export class DocPool {
     contentType: string,
     writtenBy: string,
   ): Promise<{ ok: true; size_bytes: number; path: string }> {
+    this.validateKey(key);
+
     // Validate content type
     if (!this.allowedTypes.includes(contentType)) {
       throw new Error(
@@ -124,6 +145,7 @@ export class DocPool {
     | { found: true; value: string; content_type: string; written_by: string }
     | { found: false }
   > {
+    this.validateKey(key);
     const entry = this.index.find((e) => e.key === key);
     if (!entry) return { found: false };
 
@@ -153,6 +175,7 @@ export class DocPool {
   }
 
   async delete(key: string): Promise<boolean> {
+    this.validateKey(key);
     const idx = this.index.findIndex((e) => e.key === key);
     if (idx === -1) return false;
 
@@ -186,12 +209,14 @@ export class DocPool {
   }
 
   async clear(): Promise<void> {
-    // Delete all tracked files
-    for (const entry of this.index) {
-      const ext = extensionFor(entry.content_type);
-      const filePath = path.join(this.baseDir, `${entry.key}${ext}`);
-      await fs.unlink(filePath).catch(() => {});
-    }
+    // Delete all tracked files in parallel
+    await Promise.all(
+      this.index.map((entry) => {
+        const ext = extensionFor(entry.content_type);
+        const filePath = path.join(this.baseDir, `${entry.key}${ext}`);
+        return fs.unlink(filePath).catch(() => {});
+      }),
+    );
     this.index = [];
   }
 

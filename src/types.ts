@@ -177,6 +177,7 @@ export interface TeamRun {
   goal: string;
   status: RunStatus;
   orchestrator?: string;
+  requester_session?: string;
   tasks: TeamTask[];
   started_at: number;
   updated_at: number;
@@ -273,6 +274,40 @@ export interface BroadcastEvent {
   agent: string;
   data: Record<string, unknown>;
   ts: number;
+}
+
+// ── Per-Run Session Types ───────────────────────────────────────────
+
+export interface RunSession {
+  sessionKey: string;   // agent:<agentId>:run:<runId>
+  runId: string;
+  createdAt: number;
+}
+
+/**
+ * Parsed result from a run session key.
+ * Session keys follow the pattern: agent:<agentId>:run:<runId>
+ */
+export interface ParsedRunSessionKey {
+  agentId: string;
+  runId: string;
+}
+
+/**
+ * Build a deterministic run session key from agentId and runId.
+ */
+export function makeRunSessionKey(agentId: string, runId: string): string {
+  return `agent:${agentId}:run:${runId}`;
+}
+
+/**
+ * Parse a run session key back into its components.
+ * Returns null if the key doesn't match the expected pattern.
+ */
+export function parseRunSessionKey(sessionKey: string): ParsedRunSessionKey | null {
+  const match = sessionKey.match(/^agent:(.+):run:([^:]+)$/);
+  if (!match) return null;
+  return { agentId: match[1]!, runId: match[2]! };
 }
 
 // ── Agent ID Convention ─────────────────────────────────────────────

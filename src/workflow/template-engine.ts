@@ -135,7 +135,7 @@ export function handleFailLoopback(
     if (
       task.workflow_stage &&
       downstreamStages.has(task.workflow_stage) &&
-      (task.status === "COMPLETED" || task.status === "PENDING")
+      (task.status === "COMPLETED" || task.status === "PENDING" || task.status === "WORKING")
     ) {
       tasksToReblock.push(task.id);
     }

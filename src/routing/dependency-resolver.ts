@@ -83,13 +83,15 @@ export function cascadeCancelDependents(
     changed = false;
     for (const task of tasks) {
       if (canceledIds.has(task.id)) continue;
-      if (task.status !== "BLOCKED" && task.status !== "PENDING") continue;
+      if (task.status !== "BLOCKED" && task.status !== "PENDING" && task.status !== "WORKING") continue;
       if (!task.depends_on || task.depends_on.length === 0) continue;
 
       const dependsOnCanceled = task.depends_on.some((dep) => canceledIds.has(dep));
       if (dependsOnCanceled) {
+        // Find the direct parent that was canceled
+        const directParent = task.depends_on.find((dep) => canceledIds.has(dep)) ?? canceledTaskId;
         task.status = "CANCELED";
-        task.message = `Cascade-canceled: dependency ${canceledTaskId} was canceled`;
+        task.message = `Cascade-canceled: dependency '${directParent}' was canceled (root: '${canceledTaskId}')`;
         task.updated_at = Date.now();
         canceledIds.add(task.id);
         canceled.push(task);
@@ -99,4 +101,60 @@ export function cascadeCancelDependents(
   }
 
   return canceled;
+}
+
+/**
+ * Detect circular dependencies using DFS.
+ *
+ * Checks if adding a new task with the given dependencies would create a cycle.
+ * Returns the cycle path (array of task IDs) if a cycle is found, null otherwise.
+ */
+export function detectCycle(
+  tasks: TeamTask[],
+  newTaskId: string,
+  dependsOn: string[],
+): string[] | null {
+  // Build adjacency map: taskId -> tasks it depends on
+  const deps = new Map<string, string[]>();
+  for (const task of tasks) {
+    if (task.depends_on && task.depends_on.length > 0) {
+      deps.set(task.id, task.depends_on);
+    }
+  }
+  // Add the new task's dependencies
+  deps.set(newTaskId, dependsOn);
+
+  // DFS cycle detection
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  const parent = new Map<string, string>();
+
+  function dfs(nodeId: string): string[] | null {
+    visited.add(nodeId);
+    inStack.add(nodeId);
+
+    const neighbors = deps.get(nodeId) ?? [];
+    for (const dep of neighbors) {
+      if (!visited.has(dep)) {
+        parent.set(dep, nodeId);
+        const cycle = dfs(dep);
+        if (cycle) return cycle;
+      } else if (inStack.has(dep)) {
+        // Found a cycle — reconstruct the path
+        const cyclePath: string[] = [dep];
+        let current = nodeId;
+        while (current !== dep) {
+          cyclePath.push(current);
+          current = parent.get(current) ?? dep;
+        }
+        cyclePath.push(dep);
+        return cyclePath.reverse();
+      }
+    }
+
+    inStack.delete(nodeId);
+    return null;
+  }
+
+  return dfs(newTaskId);
 }

@@ -37,26 +37,32 @@ export function buildPeerContext(
   // Peer collaboration rules
   sections.push(`
 ### Peer Rules
-1. **Query existing tasks** before creating new ones to avoid duplication.
-2. **Create tasks for yourself** when you identify work that matches your skills.
-3. **Use team_send** for coordination discussions with specific peers.
-4. **Store results in team_memory** so other peers can access them.
-5. **Claim unassigned tasks** that match your skills using team_task (action: update).
-6. **Publish progress events** via team_events so peers stay informed.
-7. **Any member can finalize** the run with team_run (action: complete) when all tasks are done.
-8. **Do not duplicate effort** — check task assignments and memory before starting work.`);
+1. **Discover tasks** using \`team_task\`(action: query, filter: "available") to find PENDING tasks you can claim.
+2. **Query existing tasks** before creating new ones to avoid duplication.
+3. **Create tasks for yourself** when you identify work that matches your skills.
+4. **Use team_send** for coordination discussions with specific peers.
+5. **Store results in team_memory** so other peers can access them.
+6. **Claim unassigned tasks** that match your skills using team_task (action: update, assign_to: your_name).
+7. **Publish progress events** via team_send (topic: "progress") so peers stay informed.
+8. **Any member can finalize** the run with team_run (action: complete) when all tasks are done.
+9. **Do not duplicate effort** — use \`team_task\`(action: query, filter: "mine") to check your assignments.`);
 
-  // Run-specific context
+  // Run-specific context (single-pass counting)
   if (run && run.status === "WORKING") {
-    const myTasks = run.tasks.filter((t) => t.assigned_to === memberKey);
-    const myPending = myTasks.filter((t) => t.status === "PENDING").length;
-    const myWorking = myTasks.filter((t) => t.status === "WORKING").length;
-    const totalCompleted = run.tasks.filter((t) => t.status === "COMPLETED").length;
+    let myTotal = 0, myWorking = 0, myPending = 0, totalCompleted = 0;
+    for (const t of run.tasks) {
+      if (t.status === "COMPLETED") totalCompleted++;
+      if (t.assigned_to === memberKey) {
+        myTotal++;
+        if (t.status === "WORKING") myWorking++;
+        if (t.status === "PENDING") myPending++;
+      }
+    }
 
     sections.push(
       `\n### Current Run: ${run.id}`,
       `Goal: ${run.goal}`,
-      `Your tasks: ${myTasks.length} total (${myWorking} working, ${myPending} pending)`,
+      `Your tasks: ${myTotal} total (${myWorking} working, ${myPending} pending)`,
       `Team progress: ${totalCompleted}/${run.tasks.length} completed`,
     );
   }

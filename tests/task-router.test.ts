@@ -102,6 +102,28 @@ describe("routeTask", () => {
     expect(result.routing_reason).toBe("peer_auto_assign");
   });
 
+  it("peer fallback never assigns __leader__; it picks a real member instead", () => {
+    const peerConfig: TeamConfig = {
+      description: "Peer team",
+      coordination: "peer",
+      members: {
+        alice: { role: "Dev" },
+        bob: { role: "Dev" },
+      },
+    };
+
+    const result = routeTask(
+      peerConfig,
+      "Seed the peer backlog",
+      undefined,
+      undefined,
+      "__leader__",
+      [{ assigned_to: "alice", status: "WORKING" }],
+    );
+    expect(result.assigned_to).toBe("bob");
+    expect(result.routing_reason).toBe("peer_auto_assign");
+  });
+
   it("no skills defined: falls through to fallback", () => {
     const noSkillsConfig: TeamConfig = {
       description: "No skills team",

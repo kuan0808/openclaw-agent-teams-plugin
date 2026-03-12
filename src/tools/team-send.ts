@@ -6,7 +6,7 @@
 
 import { Type, type Static } from "@sinclair/typebox";
 import { getRegistry } from "../registry.js";
-import { textResult, errorResult, resolveToolContext, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, safeSaveAll, type ToolContext } from "./tool-helpers.js";
 
 // ── Parameters ──────────────────────────────────────────────────────────
 
@@ -69,11 +69,13 @@ export function teamSendTool(ctx: ToolContext) {
       // ── Event Queue publishing ──────────────────────────────────────
       if (params.topic) {
         let eventData: unknown;
+        let jsonParseWarning: string | undefined;
         if (params.data) {
           try {
             eventData = JSON.parse(params.data);
           } catch {
             eventData = params.data;
+            jsonParseWarning = "Data parameter was not valid JSON and was stored as a plain string.";
           }
         }
 
@@ -89,6 +91,7 @@ export function teamSendTool(ctx: ToolContext) {
           published: true,
           topic: params.topic,
           event_id: eventId,
+          ...(jsonParseWarning ? { warning: jsonParseWarning } : {}),
         };
 
         activity.log(teamCtx.team, teamCtx.member, "message_sent",
@@ -140,7 +143,7 @@ export function teamSendTool(ctx: ToolContext) {
       }
 
       savesNeeded.push(activity.save());
-      await Promise.all(savesNeeded);
+      await safeSaveAll(savesNeeded);
 
       return textResult(results);
     },

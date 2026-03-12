@@ -37,7 +37,7 @@ export async function writeJson(filePath: string, data: unknown): Promise<void> 
   const dir = path.dirname(filePath);
   await ensureDir(dir);
 
-  const tmpPath = `${filePath}.tmp.${Date.now()}`;
+  const tmpPath = `${filePath}.tmp.${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const json = JSON.stringify(data, null, 2) + "\n";
 
   await fs.writeFile(tmpPath, json, "utf-8");
@@ -49,4 +49,17 @@ export async function writeJson(filePath: string, data: unknown): Promise<void> 
  */
 export async function ensureDir(dirPath: string): Promise<void> {
   await fs.mkdir(dirPath, { recursive: true });
+}
+
+/**
+ * List all .json files in a directory.
+ * Returns filenames (not full paths). Returns empty array if directory is empty or unreadable.
+ */
+export async function listJsonFiles(dirPath: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(dirPath);
+    return entries.filter((f) => f.endsWith(".json"));
+  } catch {
+    return [];
+  }
 }

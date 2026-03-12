@@ -8,12 +8,16 @@ import type { MessageEntry } from "../types.js";
 import { readJson, writeJson, ensureDir } from "./persistence.js";
 import * as path from "node:path";
 
+const DEFAULT_MAX_MESSAGES = 1000;
+
 export class MessageStore {
   private messages: MessageEntry[] = [];
   private baseDir: string;
+  private maxMessages: number;
 
-  constructor(baseDir: string) {
+  constructor(baseDir: string, maxMessages?: number) {
     this.baseDir = baseDir;
+    this.maxMessages = maxMessages ?? DEFAULT_MAX_MESSAGES;
   }
 
   async load(): Promise<void> {
@@ -39,6 +43,27 @@ export class MessageStore {
       message,
       timestamp: Date.now(),
       acked: false,
+    });
+
+    // Auto-trim oldest acked messages when exceeding limit
+    if (this.messages.length > this.maxMessages) {
+      this.trimAcked();
+    }
+  }
+
+  private trimAcked(): void {
+    // Remove oldest acked messages first to stay within bounds
+    const excess = this.messages.length - this.maxMessages;
+    if (excess <= 0) return;
+
+    let removed = 0;
+    this.messages = this.messages.filter((m) => {
+      if (removed >= excess) return true;
+      if (m.acked) {
+        removed++;
+        return false;
+      }
+      return true;
     });
   }
 

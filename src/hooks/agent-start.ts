@@ -9,12 +9,16 @@
  *  - Decision flow
  *  - Previous learnings
  *
+ * Supports per-run sessions: parses sessionKey to extract runId,
+ * then builds run-specific prompt and registers the session.
+ *
  * Delegates to shared buildSystemPrompt() from prompt-builder for prompt construction.
  */
 
-import { isTeamAgent, parseAgentId, isCliMember } from "../types.js";
-import { getRegistry } from "../registry.js";
+import { isTeamAgent, parseAgentId, parseRunSessionKey, isCliMember } from "../types.js";
+import { getRegistry, registerRunSession } from "../registry.js";
 import { buildSystemPrompt } from "../cli/prompt-builder.js";
+import { autoTransitionPendingToWorking } from "../tools/tool-helpers.js";
 
 export function createAgentStartHook(): (
   event: { prompt: string; messages?: unknown[] },
@@ -44,6 +48,20 @@ export function createAgentStartHook(): (
     const stores = registry.getTeamStores(team);
     if (!stores) return;
 
+    // Parse sessionKey for per-run context
+    let runId: string | undefined;
+    if (ctx.sessionKey) {
+      const parsedSession = parseRunSessionKey(ctx.sessionKey);
+      if (parsedSession) {
+        runId = parsedSession.runId;
+        registerRunSession(registry, ctx.agentId!, runId, ctx.sessionKey, Date.now());
+      } else {
+        // Legacy spawn path — register in 1:1 maps
+        registry.sessions.set(ctx.agentId!, ctx.sessionKey);
+        registry.sessionToAgent.set(ctx.sessionKey, ctx.agentId!);
+      }
+    }
+
     const prependContext = await buildSystemPrompt({
       team,
       member,
@@ -51,7 +69,11 @@ export function createAgentStartHook(): (
       memberConfig,
       stores,
       isCli: false,
+      runId,
     });
+
+    // Auto-transition PENDING tasks to WORKING for this member (in this run)
+    await autoTransitionPendingToWorking(team, member, stores, runId);
 
     const modelOverride = memberConfig.model?.primary;
 

@@ -7,9 +7,9 @@
  *
  * Environment variables:
  *  - AT_AGENT_ID — e.g., "at--eng--frontend"
- *  - AT_SOCK_PATH — path to IPC Unix socket
+ *  - AT_SOCK_PATH — IPC endpoint: Unix socket path or tcp://host:port
  *
- * Protocol: JSON-RPC over line-delimited JSON on Unix socket.
+ * Protocol: JSON-RPC over line-delimited JSON on a local socket.
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -30,47 +30,62 @@ if (!AGENT_ID || !SOCK_PATH) {
   process.exit(1);
 }
 
-// ── IPC Client ────────────────────────────────────────────────────────────
+// ── IPC Client with persistent connection ──────────────────────────────
 
+const IPC_TIMEOUT = parseInt(process.env.AT_IPC_TIMEOUT ?? "30000", 10) || 30000;
 let requestCounter = 0;
 
-async function ipcCall(method: string, params: Record<string, unknown>): Promise<unknown> {
+interface PendingRequest {
+  resolve: (value: unknown) => void;
+  reject: (reason: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+let persistentSocket: net.Socket | null = null;
+let socketBuffer = "";
+const pendingRequests = new Map<string, PendingRequest>();
+
+function resetConnection(reason: string): void {
+  persistentSocket = null;
+  socketBuffer = "";
+  for (const [, pending] of pendingRequests) {
+    clearTimeout(pending.timer);
+    pending.reject(new Error(reason));
+  }
+  pendingRequests.clear();
+}
+
+function ensureConnection(): Promise<net.Socket> {
+  if (persistentSocket && !persistentSocket.destroyed) {
+    return Promise.resolve(persistentSocket);
+  }
+
   return new Promise((resolve, reject) => {
-    const id = String(++requestCounter);
-    const socket = net.createConnection({ path: SOCK_PATH! }, () => {
-      const request = JSON.stringify({
-        id,
-        method,
-        agentId: AGENT_ID,
-        params,
-      });
-      socket.write(request + "\n");
+    const socket = createIpcConnection(SOCK_PATH!, () => {
+      persistentSocket = socket;
+      resolve(socket);
     });
 
-    let buffer = "";
-
-    const timer = setTimeout(() => {
-      socket.destroy();
-      reject(new Error("IPC call timed out"));
-    }, 30000);
-
     socket.on("data", (chunk) => {
-      buffer += chunk.toString();
-      const lines = buffer.split("\n");
+      socketBuffer += chunk.toString();
+      const lines = socketBuffer.split("\n");
+      // Keep the last incomplete line in buffer
+      socketBuffer = lines.pop() ?? "";
+
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
         try {
           const response = JSON.parse(trimmed);
-          if (response.id === id) {
-            clearTimeout(timer);
-            socket.end();
+          const pending = pendingRequests.get(response.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            pendingRequests.delete(response.id);
             if (response.error) {
-              reject(new Error(response.error));
+              pending.reject(new Error(response.error));
             } else {
-              resolve(response.result);
+              pending.resolve(response.result);
             }
-            return;
           }
         } catch {
           // Ignore parse errors on incomplete data
@@ -79,14 +94,60 @@ async function ipcCall(method: string, params: Record<string, unknown>): Promise
     });
 
     socket.on("error", (err) => {
-      clearTimeout(timer);
+      resetConnection(`IPC connection error: ${err.message}`);
       reject(new Error(`IPC connection failed: ${err.message}`));
     });
 
     socket.on("close", () => {
-      // If we haven't resolved yet, the connection closed unexpectedly
+      resetConnection("IPC connection closed");
     });
   });
+}
+
+async function ipcCall(method: string, params: Record<string, unknown>): Promise<unknown> {
+  const id = String(++requestCounter);
+
+  let socket: net.Socket;
+  try {
+    socket = await ensureConnection();
+  } catch {
+    // Auto-reconnect on failure
+    persistentSocket = null;
+    socket = await ensureConnection();
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingRequests.delete(id);
+      reject(new Error("IPC call timed out"));
+    }, IPC_TIMEOUT);
+
+    pendingRequests.set(id, { resolve, reject, timer });
+
+    const request = JSON.stringify({
+      id,
+      method,
+      agentId: AGENT_ID,
+      params,
+    });
+    socket.write(request + "\n");
+  });
+}
+
+function createIpcConnection(endpoint: string, onConnect: () => void): net.Socket {
+  if (!endpoint.startsWith("tcp://")) {
+    return net.createConnection({ path: endpoint }, onConnect);
+  }
+
+  const parsed = new URL(endpoint);
+  const port = Number(parsed.port);
+  return net.createConnection(
+    {
+      host: parsed.hostname || "127.0.0.1",
+      port,
+    },
+    onConnect,
+  );
 }
 
 // ── Tool Definitions ──────────────────────────────────────────────────────
@@ -126,6 +187,7 @@ const TOOL_DEFINITIONS = [
         result: { type: "string", description: "Task result (for update)" },
         message: { type: "string", description: "Status message (for update)" },
         filter_status: { type: "array", items: { type: "string" }, description: "Filter tasks by status" },
+        filter: { type: "string", enum: ["mine", "unassigned", "available"], description: "Filter tasks: 'mine' (assigned to me), 'unassigned', 'available' (PENDING tasks I could claim)" },
         deliverables: {
           type: "array",
           items: {

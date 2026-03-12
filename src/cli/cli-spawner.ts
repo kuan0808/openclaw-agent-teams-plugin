@@ -17,6 +17,7 @@ import type { CliType, TeamConfig } from "../types.js";
 import { makeAgentId } from "../types.js";
 import type { PluginRegistry, TeamStores } from "../registry.js";
 import { ensureDir } from "../state/persistence.js";
+import { safeSaveAll } from "../tools/tool-helpers.js";
 
 // ── node-pty lazy loading ─────────────────────────────────────────────────
 // node-pty is an optional dependency. We load it dynamically to avoid
@@ -65,6 +66,8 @@ export async function loadNodePty(): Promise<NodePtyModule> {
 
 export class CliSpawner {
   private processes: Map<string, CliAgentProcess> = new Map();
+  private spawnLocks: Map<string, Promise<CliAgentProcess>> = new Map();
+  private pendingSaves: Promise<void>[] = [];
 
   constructor(
     private stateDir: string,
@@ -73,9 +76,24 @@ export class CliSpawner {
   ) {}
 
   /**
-   * Spawn a CLI agent process.
+   * Spawn a CLI agent process, with duplicate-spawn protection.
+   * If a spawn is already in-flight for this agentId, returns the existing promise.
    */
   async spawn(params: CliSpawnParams): Promise<CliAgentProcess> {
+    const existing = this.spawnLocks.get(params.agentId);
+    if (existing) return existing;
+
+    const promise = this._doSpawn(params).finally(() => {
+      this.spawnLocks.delete(params.agentId);
+    });
+    this.spawnLocks.set(params.agentId, promise);
+    return promise;
+  }
+
+  /**
+   * Internal spawn implementation.
+   */
+  private async _doSpawn(params: CliSpawnParams): Promise<CliAgentProcess> {
     const pty = await loadNodePty();
 
     // Ensure log directory exists
@@ -171,9 +189,14 @@ export class CliSpawner {
   /**
    * Kill all CLI agent processes.
    */
-  killAll(): void {
+  async killAll(): Promise<void> {
     for (const [agentId] of this.processes) {
       this.kill(agentId);
+    }
+
+    // Drain pending saves from crash handlers
+    if (this.pendingSaves.length > 0) {
+      await safeSaveAll(this.pendingSaves.splice(0));
     }
   }
 
@@ -296,8 +319,10 @@ export class CliSpawner {
     params: CliSpawnParams,
     tempFiles: string[],
   ): Promise<{ command: string; args: string[] }> {
-    // Write codex.md in cwd with system prompt
-    const codexMdPath = path.join(params.cwd, "codex.md");
+    // Write codex.md in stateDir config area instead of cwd
+    const configDir = path.join(this.stateDir, "cli-config", params.agentId);
+    await ensureDir(configDir);
+    const codexMdPath = path.join(configDir, "codex.md");
     await fsp.writeFile(codexMdPath, params.systemPrompt);
     tempFiles.push(codexMdPath);
 
@@ -305,6 +330,7 @@ export class CliSpawner {
 
     const args = [
       "--full-auto",
+      "--instructions", codexMdPath,
     ];
 
     if (params.model) {
@@ -328,20 +354,22 @@ export class CliSpawner {
     params: CliSpawnParams,
     tempFiles: string[],
   ): Promise<{ command: string; args: string[] }> {
-    // Write .gemini/GEMINI.md in cwd with system prompt
-    const geminiDir = path.join(params.cwd, ".gemini");
-    await ensureDir(geminiDir);
+    // Write config files in stateDir config area instead of cwd
+    const configDir = path.join(this.stateDir, "cli-config", params.agentId, ".gemini");
+    await ensureDir(configDir);
 
-    const geminiMdPath = path.join(geminiDir, "GEMINI.md");
+    const geminiMdPath = path.join(configDir, "GEMINI.md");
     await fsp.writeFile(geminiMdPath, params.systemPrompt);
     tempFiles.push(geminiMdPath);
 
-    // Write .gemini/settings.json with MCP server config
-    const settingsPath = path.join(geminiDir, "settings.json");
+    // Write settings.json with MCP server config
+    const settingsPath = path.join(configDir, "settings.json");
     await fsp.writeFile(settingsPath, JSON.stringify(this.buildMcpConfig(params.agentId), null, 2));
     tempFiles.push(settingsPath);
 
-    const args: string[] = [];
+    const args: string[] = [
+      "--sandbox_config_dir", path.dirname(configDir),
+    ];
 
     if (params.model) {
       args.push("--model", params.model);
@@ -409,12 +437,18 @@ export class CliSpawner {
       }
 
       if (hasUpdates) {
-        // Save asynchronously — fire-and-forget in crash handler
-        Promise.all([
+        // Track save promise for draining in killAll; auto-remove when resolved
+        const savePromise = Promise.all([
           stores.runs.save(),
           stores.kv.save(),
           stores.activity.save(),
-        ]).catch(() => { /* Ignore save errors in crash handler */ });
+        ]).catch((err) => {
+          console.error("[agent-teams] Crash handler save failed:", err);
+        }).finally(() => {
+          const idx = this.pendingSaves.indexOf(savePromise as Promise<void>);
+          if (idx !== -1) this.pendingSaves.splice(idx, 1);
+        });
+        this.pendingSaves.push(savePromise as Promise<void>);
       }
     }
 
@@ -429,7 +463,21 @@ export class CliSpawner {
 
       // Push notification to orchestrator
       const orchId = makeAgentId(team, teamConfig.orchestrator);
-      const orchSession = this.registry.sessions.get(orchId);
+      // Find orchestrator's session — try per-run sessions first, then legacy
+      let orchSession: string | undefined;
+      const orchRunSessions = this.registry.memberSessions.get(orchId);
+      if (orchRunSessions && orchRunSessions.size > 0) {
+        // Notify all active run sessions of the orchestrator
+        for (const rs of orchRunSessions.values()) {
+          this.registry.enqueueSystemEvent(
+            `[Team Update] CLI agent "${member}" (${cli}) crashed with exit code ${exitCode}. Active tasks marked FAILED.`,
+            { sessionKey: rs.sessionKey },
+          );
+          this.registry.requestHeartbeatNow({ agentId: orchId, sessionKey: rs.sessionKey });
+        }
+      } else {
+        orchSession = this.registry.sessions.get(orchId);
+      }
       if (orchSession) {
         this.registry.enqueueSystemEvent(
           `[Team Update] CLI agent "${member}" (${cli}) crashed with exit code ${exitCode}. Active tasks marked FAILED.`,

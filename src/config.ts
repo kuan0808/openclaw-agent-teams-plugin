@@ -18,6 +18,74 @@ export interface ConfigValidationResult {
   errors: string[];
 }
 
+const CORE_TEAM_TOOLS = [
+  "team_run",
+  "team_task",
+  "team_memory",
+  "team_send",
+  "team_inbox",
+];
+
+function validateRequiredTools(
+  errors: string[],
+  teamName: string,
+  memberKey: string,
+  team: Record<string, unknown>,
+  member: Record<string, unknown>,
+): void {
+  if (member.cli !== undefined) {
+    return;
+  }
+
+  const tools = member.tools;
+  if (!tools || typeof tools !== "object") {
+    return;
+  }
+
+  const allow = Array.isArray((tools as Record<string, unknown>).allow)
+    ? ((tools as Record<string, unknown>).allow as string[])
+    : undefined;
+  const deny = Array.isArray((tools as Record<string, unknown>).deny)
+    ? ((tools as Record<string, unknown>).deny as string[])
+    : undefined;
+
+  if (allow) {
+    for (const toolName of CORE_TEAM_TOOLS) {
+      if (!allow.includes(toolName)) {
+        errors.push(
+          `Team "${teamName}", member "${memberKey}": tools.allow must include "${toolName}" for Agent Teams to work`,
+        );
+      }
+    }
+  }
+
+  if (deny) {
+    for (const toolName of CORE_TEAM_TOOLS) {
+      if (deny.includes(toolName)) {
+        errors.push(
+          `Team "${teamName}", member "${memberKey}": tools.deny must not block "${toolName}"`,
+        );
+      }
+    }
+  }
+
+  if (
+    team.coordination === "orchestrator" &&
+    team.orchestrator === memberKey
+  ) {
+    if (allow && !allow.includes("sessions_spawn")) {
+      errors.push(
+        `Team "${teamName}", member "${memberKey}": native orchestrators must include "sessions_spawn" in tools.allow`,
+      );
+    }
+    if (deny?.includes("sessions_spawn")) {
+      errors.push(
+        `Team "${teamName}", member "${memberKey}": native orchestrators must not deny "sessions_spawn"`,
+      );
+    }
+  }
+}
+
 export function validateConfig(raw: unknown): ConfigValidationResult {
   const errors: string[] = [];
 
@@ -104,6 +172,8 @@ export function validateConfig(raw: unknown): ConfigValidationResult {
           );
         }
       }
+
+      validateRequiredTools(errors, name, memberKey, team, member);
     }
   }
 
