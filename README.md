@@ -46,15 +46,54 @@ The main agent calls `team_run`, activates peer agents, and they self-organize.
 
 <br>
 
-## 🧙 Guided Setup
+## 🧙 Guided Setup (Bundled Skill)
 
-This plugin includes a bundled **setup skill** that walks you through team configuration interactively. Just ask:
+This plugin ships with an interactive **setup skill** — just talk naturally and it handles everything:
 
 ```
 "Help me set up a team"
+"I need a content creation pipeline with an editor and two writers"
+"How do I add a CLI agent to my team?"
+"What's the difference between orchestrator and peer mode?"
 ```
 
-The skill offers **4 preset templates** (Code Review Pair, Product Team, Pipeline, CLI Agent Team) or builds a custom config via Q&A — then applies it automatically with `openclaw config set`. It also handles tool help, workflow setup, and troubleshooting.
+### Preset Templates
+
+Pick a starting point and the skill generates a ready-to-apply config:
+
+| Template | Mode | What You Get |
+|----------|------|-------------|
+| **Co-Reviewer** | peer | Multi-perspective code/content review (3 reviewers with complementary focuses) |
+| **Product Team** | orchestrator | PM coordinates frontend, backend, and QA |
+| **Research Team** | peer | Researcher + analyst + report writer with cross-run knowledge |
+| **Content Creation** | orchestrator | Editor-led pipeline: draft → fact-check with fail-loopback |
+| **Pipeline** | orchestrator | Staged workflow (design → implement → review) with quality gates |
+| **Custom** | — | Describe what you need, the skill designs the config via Q&A |
+
+### Beyond Setup
+
+The skill isn't just for initial configuration — it's a **comprehensive reference** for the entire plugin:
+
+| Ask about... | What you get |
+|-------------|-------------|
+| Tools (`team_run`, `team_task`, ...) | Full parameter docs, usage examples, typical workflows |
+| CLI agents | Prerequisites, per-CLI differences (Claude vs Codex vs Gemini), debugging |
+| Orchestrator vs peer | Decision matrix, routing algorithm, behavioral differences |
+| Role files | How to use `role_file` for external prompt templates, path resolution, format guide |
+| Workflow templates | Stages, fail handlers, gates, deliverables, structured learnings |
+| Errors | Diagnosis guide for config errors, runtime issues, CLI agent problems |
+| Modify existing config | Reads current config, helps you edit, re-applies |
+
+### Role Prompt Templates
+
+The skill includes **11 ready-to-use role prompts** (`references/roles/*.md`) that you can copy to `~/.openclaw/roles/` and reference via `role_file`:
+
+```
+pm-orchestrator · code-reviewer · frontend-dev · backend-dev · qa-engineer
+researcher · analyst · content-writer · content-editor · fact-checker · competitive-analyst
+```
+
+Each template follows a consistent structure: Identity, Responsibilities, Approach, Output Format, and Collaboration guidelines with team tool references.
 
 <br>
 
