@@ -1,337 +1,193 @@
 ---
 name: agent-teams-setup
 description: >-
-  Set up and configure multi-agent teams for the Agent Teams plugin. Use when:
-  (1) Setting up agent teams for the first time, (2) Creating a new team with
-  orchestrator or peer coordination, (3) Adding members, skills, or CLI agents,
-  (4) Configuring workflow templates with stages and fail handlers,
-  (5) Understanding team tools (team_run, team_task, team_memory, team_send,
-  team_inbox), (6) Troubleshooting agent teams config errors, (7) Understanding
-  multi-agent coordination patterns, (8) Setting up external CLI agents
-  (Claude, Codex, Gemini), (9) Configuring approval gates and deliverables.
-  Triggers on: "set up agent teams", "create a team", "agent teams help",
-  "team coordination", "multi-agent setup", "orchestrator vs peer",
-  "workflow template", "team plugin".
+  Set up and configure multi-agent teams for the Agent Teams plugin. Use this
+  skill whenever the user mentions agent teams, multi-agent coordination, team
+  setup, or needs help with team configuration — even if they don't explicitly
+  say "agent teams". Triggers on: "set up a team", "create a team", "agent teams",
+  "multi-agent", "team coordination", "orchestrator vs peer", "workflow template",
+  "team plugin", "add team members", "configure team", "team config",
+  "I want agents to work together", "split work across agents", "coordinate agents",
+  "team_run", "team_task", "team_send", "team_inbox", "team_memory",
+  "CLI agents", "spawn Claude/Codex/Gemini agents", "peer mode", "orchestrator mode",
+  "workflow pipeline", "approval gates", "skill-based routing",
+  "troubleshoot team", "team error", "/team status", "/team list".
+  Also trigger when the user already has the plugin and asks about tools,
+  commands, workflows, or debugging — this skill covers all of that.
 ---
+
+# Agent Teams Setup
 
 ## How to Use This Skill
 
-When this skill triggers, first determine what the user needs:
+Determine what the user needs and jump to the right section:
 
-1. **"I want to set up / create a team"** → Start with Section 2 (First-Time Setup),
-   then walk through Section 3 (Team Creation Wizard) step by step.
-   Ask questions to determine coordination mode, members, skills.
-   Generate a complete JSON config block at the end.
+| User Intent | Action |
+|-------------|--------|
+| "Set up / create a team" | **Section 1: Interactive Setup** — walk through guided setup |
+| "Help with tools / how do I use X" | **Section 2** + `references/tool-reference.md` |
+| "Configure workflow / pipeline" | **Section 3** + `references/workflow-templates.md` |
+| "Something is broken / error" | **Section 5** + `references/troubleshooting.md` |
+| "Explain how this works" | **Section 4: Key Concepts** |
+| "Show me examples" | `references/config-examples.md` |
 
-2. **"I already have a team, I need help with X"** → Jump to the relevant section:
-   - Tools question → Section 4 + `references/tool-reference.md`
-   - Workflow/pipeline → Section 6 + `references/workflow-templates.md`
-   - Adding members/changing config → Section 3
-   - Config examples → `references/config-examples.md`
-
-3. **"Something is broken / error"** → Section 8 + `references/troubleshooting.md`
-   Ask for the error message, match against known errors.
-
-4. **"Explain how this works"** → Section 7 (Key Concepts)
-
-5. **"What can teams do?"** → Section 1 (Quick Overview) then offer to dive deeper
-
-Do NOT dump all information at once. Ask clarifying questions.
-Always provide copy-pasteable JSON config blocks.
-Reference files in `references/` for deep dives instead of inlining everything.
+**Golden rules:**
+- Do NOT dump all information at once. Ask clarifying questions.
+- Always provide copy-pasteable JSON config blocks.
+- After generating config, offer to auto-apply it.
+- Reference files in `references/` for deep dives instead of inlining everything.
 
 ---
 
-## 1. Quick Overview
+## 1. Interactive Setup
 
-Agent Teams is an OpenClaw plugin that lets you define multi-agent teams declaratively in JSON.
-Teams coordinate through shared tools, messaging, and memory — no custom orchestration code needed.
+This is the core guided experience. Follow the flow below based on the user's starting point.
+
+### Step 1: Offer Choices
+
+Present these options to the user:
 
 ```
-                    ┌─────────────────────────┐
-                    │   openclaw.plugin.json   │
-                    │   (team config)          │
-                    └──────────┬──────────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-         ┌────▼────┐    ┌─────▼─────┐    ┌─────▼─────┐
-         │  Tools  │    │   Hooks   │    │ Commands  │
-         │ 5 tools │    │ 5 hooks   │    │ /team ... │
-         └────┬────┘    └─────┬─────┘    └─────┬─────┘
-              │               │                │
-         ┌────▼───────────────▼────────────────▼────┐
-         │              State Stores                │
-         │  KV · Events · Docs · Runs · Messages    │
-         │            Activity Log                  │
-         └──────────────────────────────────────────┘
+I can help you set up a team! Pick a starting point:
+
+1. 🔍 Code Review Pair — Two reviewers with complementary focuses (security + architecture)
+2. 👥 Product Team — PM coordinates frontend, backend, and QA
+3. 🔄 Pipeline — Staged workflow (design → implement → review) with quality gates
+4. 🤖 CLI Agent Team — Mix native agents with Claude/Codex/Gemini CLI agents
+5. ✏️ Custom — Describe what you need and I'll design the config
+
+Which one sounds closest, or tell me what you have in mind?
 ```
 
-**Two coordination modes:**
+If the user picks 1–4, jump to **Step 2: Apply Template**.
+If the user picks 5 or describes something custom, jump to **Step 3: Custom Builder**.
+If the user just describes what they want without picking a number, infer the best match or go to Step 3.
 
-- **Orchestrator** — One leader assigns tasks and approves results. Best for structured workflows with clear task ownership.
-- **Peer** — All members are equal. Tasks route via skill matching. Best for collaborative work where any member can pick up tasks.
+### Step 2: Apply Template
 
----
+Load the matching config from `references/config-examples.md`:
 
-## 2. First-Time Setup
+| Choice | Template | Coordination |
+|--------|----------|-------------|
+| 1 | Code Review Pair (example 2) | peer |
+| 2 | Product Team (example 3) | orchestrator |
+| 3 | Pipeline Team (example 5) | orchestrator |
+| 4 | CLI Agent Team (example 4) | orchestrator |
+
+**Present the config** and ask if the user wants to customize it:
+
+```
+Here's the [template name] config:
+
+[show JSON]
+
+Want to adjust anything before I apply it?
+- Team name?
+- Member names or roles?
+- Add/remove members?
+- Add CLI agents?
+
+Or should I apply it as-is?
+```
+
+Incorporate any requested changes, then proceed to **Step 4: Apply Config**.
+
+### Step 3: Custom Builder
+
+Guide the user through these questions conversationally. You don't need to ask all at once — adapt based on what they've already told you.
+
+**Questions to ask (in order of priority):**
+
+1. **Purpose** — "What will this team do?" (e.g., build features, review code, data pipeline)
+2. **Coordination** — "Should one agent lead and assign tasks (orchestrator), or should they be equals who pick up work (peer)?"
+   - If unsure: "Orchestrator is good when you want one agent to plan and review. Peer is good when agents have clear skill areas and can self-organize."
+3. **Members** — "What roles do you need? For example: frontend dev, backend dev, QA, reviewer, PM..."
+4. **Skills** — For each member: "What skills should [member] handle?" (used for automatic task routing)
+5. **CLI agents** — "Should any members run as external CLI agents (Claude, Codex, or Gemini)?"
+6. **Workflow** — "Do you want staged workflows? (e.g., design → implement → review, where each stage must complete before the next starts)"
+7. **Gates** — "Should task completion require deliverables or approval from the leader?"
+
+**After gathering answers, generate the complete config JSON.**
+
+Then proceed to **Step 4: Apply Config**.
+
+### Step 4: Apply Config
+
+After the user approves the config, apply it:
+
+```bash
+openclaw config set plugins.entries.agent-teams.config --strict-json '<THE_JSON_CONFIG>'
+```
+
+Then tell the user:
+
+```
+Config applied! Restart to activate:
+
+  openclaw gateway restart
+
+After restart, you can use the team:
+  "Use the [team-name] team to [goal]"
+
+Or check status with: /team status [team-name]
+```
+
+**Important:** When generating the `openclaw config set` command:
+- The JSON must be valid and on a single line (or properly escaped)
+- Use `--strict-json` flag
+- The config is the `pluginConfig` content (the object containing `"teams": { ... }`)
 
 ### Prerequisites
 
-- OpenClaw runtime installed and working
-- A project with `openclaw.plugin.json` in the root
+Before setup, verify:
+- OpenClaw runtime is installed and working
+- The agent-teams plugin is installed (`openclaw plugins list` should show it)
 
-### Minimal Configuration
-
-Add a `pluginConfig` section for `agent-teams` in your OpenClaw config. The simplest possible team:
-
-```json
-{
-  "teams": {
-    "my-team": {
-      "description": "My first team",
-      "coordination": "peer",
-      "members": {
-        "alice": {
-          "role": "General-purpose assistant that helps with coding tasks"
-        }
-      }
-    }
-  }
-}
+If the plugin isn't installed:
+```bash
+git clone https://github.com/kuan0808/openclaw-agent-teams-plugin.git
+cd openclaw-agent-teams-plugin
+npm install && npm run build
+openclaw plugins install .
 ```
-
-**Required fields:**
-- `teams` — Object with at least one team
-- `description` — What this team does
-- `coordination` — `"orchestrator"` or `"peer"`
-- `members` — Object with at least one member, each having `role` or `role_file`
-
-### Verification
-
-After configuring, start OpenClaw. You should see in the logs:
-```
-Agent Teams plugin activating...
-Configured teams: my-team
-Team "my-team" stores initialized
-Agent Teams plugin activated. 1 team(s), 1 native agent(s), 5 tools, 5 hooks, 3 commands.
-```
-
-If you see `Config error:` messages instead, check Section 8 or `references/troubleshooting.md`.
 
 ---
 
-## 3. Team Creation Wizard
-
-Walk through these questions with the user to build a config:
-
-### Step 1: Choose Coordination Mode
-
-**Orchestrator** — Choose when:
-- You have a clear leader/PM role
-- Tasks need approval before completion
-- You want structured stage-based workflows
-- You need one agent to have final say
-
-**Peer** — Choose when:
-- All agents are roughly equal
-- You want automatic skill-based routing
-- No single agent needs approval authority
-- Simple collaborative setups
-
-### Step 2: Define Members
-
-Each member needs:
-- **Key** — Unique identifier (used in agent IDs: `at--<team>--<member>`)
-- **Role** — Description of what this member does (inline string or `role_file` path)
-- **Skills** (optional) — Array of skill tags for routing (e.g., `["frontend", "react", "css"]`)
-- **can_delegate** (optional) — Whether this member can create tasks for others (default: false)
-- **tools** (optional) — `{ deny: [...], allow: [...] }` to restrict tool access
-
-### Step 3: CLI Agents (Optional)
-
-Members can be external CLI agents instead of OpenClaw subagents:
-
-```json
-{
-  "backend-dev": {
-    "role": "Backend developer specializing in APIs",
-    "skills": ["backend", "api", "database"],
-    "cli": "claude",
-    "cli_options": {
-      "cwd": "./backend",
-      "thinking": true
-    }
-  }
-}
-```
-
-Supported CLI types: `"claude"`, `"codex"`, `"gemini"`
-
-CLI options:
-| Option | Type | Description |
-|--------|------|-------------|
-| `cwd` | string | Working directory for the CLI agent |
-| `thinking` | boolean | Enable extended thinking |
-| `verbose` | boolean | Enable verbose CLI output |
-| `extra_args` | string[] | Additional CLI flags |
-
-CLI agents spawn on-demand when assigned a task — they don't start at plugin activation.
-
-### Step 4: Routing (Orchestrator Mode)
-
-For orchestrator teams, specify which member leads:
-
-```json
-{
-  "coordination": "orchestrator",
-  "orchestrator": "pm",
-  "members": {
-    "pm": { "role": "Project manager who coordinates the team" },
-    "dev": { "role": "Developer", "skills": ["coding"] }
-  }
-}
-```
-
-The `orchestrator` value must match a key in `members`.
-
-The 3-layer routing system:
-1. **Direct** — `assign_to` parameter explicitly names a member
-2. **Skill match** — `required_skills` matched against member `skills` arrays
-3. **Fallback** — Defaults to the orchestrator (in orchestrator mode)
-
-### Step 5: Shared Memory (Optional)
-
-Shared memory is enabled by default. Tune it:
-
-```json
-{
-  "shared_memory": {
-    "enabled": true,
-    "stores": {
-      "kv": { "max_entries": 1000, "ttl": 3600 },
-      "events": { "max_backlog": 500, "retention": "current-task" },
-      "docs": { "max_size_mb": 100, "allowed_types": ["text", "json", "csv", "image"] }
-    }
-  }
-}
-```
-
-### Example: 3-Member Orchestrator Team
-
-```json
-{
-  "teams": {
-    "product": {
-      "description": "Product development team",
-      "coordination": "orchestrator",
-      "orchestrator": "pm",
-      "members": {
-        "pm": {
-          "role": "Project manager. Breaks down goals into tasks, assigns work, reviews results.",
-          "can_delegate": true
-        },
-        "frontend": {
-          "role": "Frontend developer specializing in React and UI/UX",
-          "skills": ["frontend", "react", "css", "ui"]
-        },
-        "backend": {
-          "role": "Backend developer specializing in APIs and databases",
-          "skills": ["backend", "api", "database", "nodejs"]
-        }
-      }
-    }
-  }
-}
-```
-
-### Example: Peer Team with CLI Agent
-
-```json
-{
-  "teams": {
-    "reviewers": {
-      "description": "Code review team",
-      "coordination": "peer",
-      "members": {
-        "reviewer-a": {
-          "role": "Code reviewer focusing on architecture and design patterns",
-          "skills": ["review", "architecture"]
-        },
-        "reviewer-b": {
-          "role": "Code reviewer focusing on security and performance",
-          "skills": ["review", "security", "performance"],
-          "cli": "claude",
-          "cli_options": { "thinking": true }
-        }
-      }
-    }
-  }
-}
-```
-
-For more examples, see `references/config-examples.md`.
-
----
-
-## 4. Tool Quick Reference
+## 2. Tools Quick Reference
 
 | Tool | Purpose | Key Params |
 |------|---------|------------|
 | `team_run` | Manage execution runs | `action`: start/status/complete/cancel |
-| `team_task` | Create, update, query tasks | `action`: create/update/query, `deliverables`, `learning` |
-| `team_memory` | Read/write shared memory | `store`: kv/docs, `action`: get/set/delete/list |
+| `team_task` | Create, update, query tasks | `action`: create/update/query; `deliverables`, `learning` |
+| `team_memory` | Read/write shared memory | `store`: kv/docs; `action`: get/set/delete/list |
 | `team_send` | Send messages & publish events | `to` (direct), `topic` (pub/sub) |
 | `team_inbox` | Read messages, events, activity | `source`: inbox/events/activity |
 
-### Typical Workflow (5 Steps)
+### Typical Workflow
 
 ```
 1. team_run(action: "start", goal: "Build feature X")
    → Creates a run, returns run_id
-   → If workflow template exists, auto-generates task chain
 
 2. team_task(action: "create", description: "Implement API endpoint")
    → Routes to best member via skill matching
-   → Returns task_id, assigned_to
 
 3. team_task(action: "update", task_id: "...", status: "COMPLETED",
-     result: "API endpoint implemented", deliverables: [...])
+     result: "Done", deliverables: [...])
    → Marks task done, captures learnings, unblocks dependents
 
 4. team_send(to: "pm", message: "API is ready for review")
-   → Direct message to a specific member
 
 5. team_run(action: "complete", result: "Feature X shipped")
-   → Closes the run, collects all learnings
 ```
 
 For full parameter docs, see `references/tool-reference.md`.
 
 ---
 
-## 5. Commands
+## 3. Workflow Templates
 
-All commands are under the `/team` prefix:
-
-| Command | Description | Auth Required |
-|---------|-------------|---------------|
-| `/team status [name]` | Show run progress, task board, active members | No |
-| `/team list` | List all teams with member count and status | No |
-| `/team stop <name>` | Cancel the current run for a team | Yes |
-| `/team agents` | Show status of all CLI agents | No |
-| `/team logs <team/member>` | Print CLI agent log file path | No |
-| `/team start <team/member>` | Manually spawn a CLI agent | Yes |
-| `/team stop-agent <team/member>` | Kill a running CLI agent | Yes |
-
-Commands accepting `<team/member>` also accept just `<member>` if the member name is unique across teams.
-
----
-
-## 6. Workflow Templates
-
-Workflow templates auto-generate a chain of dependent tasks when a run starts.
-Each stage becomes a task; later stages are BLOCKED until earlier ones complete.
+Templates auto-generate a chain of dependent tasks when a run starts.
 
 ```json
 {
@@ -358,22 +214,49 @@ Each stage becomes a task; later stages are BLOCKED until earlier ones complete.
 }
 ```
 
-**Fail handlers** define loopback: if `review` fails, a rework task is created at the `implement` stage and all downstream tasks are re-blocked.
+**Fail handlers** define loopback: if `review` fails → rework task at `implement`, downstream re-blocks.
 
-**Gates** enforce quality checks on status transitions:
-- `require_deliverables` — Must attach at least one deliverable
-- `require_result` — Must provide a result summary
-- `approver` — Only this member (or `"orchestrator"`) can make the transition
+**Gates** enforce quality: require deliverables, result summary, or specific approver.
 
 For detailed docs, see `references/workflow-templates.md`.
 
 ---
 
-## 7. Key Concepts
+## 4. Key Concepts
+
+### Architecture
+
+```
+                    ┌─────────────────────────┐
+                    │   openclaw.plugin.json   │
+                    │      (team config)       │
+                    └──────────┬──────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+         ┌────▼────┐    ┌─────▼─────┐    ┌─────▼─────┐
+         │  Tools  │    │   Hooks   │    │ Commands  │
+         │ 5 tools │    │ 4 hooks   │    │ /team ... │
+         └────┬────┘    └─────┬─────┘    └─────┬─────┘
+              │               │                │
+         ┌────▼───────────────▼────────────────▼────┐
+         │              State Stores                │
+         │  KV · Events · Docs · Runs · Messages    │
+         │     Activity Log · Enforcement           │
+         ├──────────────────────────────────────────┤
+         │  CLI Agents (PTY)  │  Broadcast (.jsonl) │
+         └──────────────────────────────────────────┘
+```
+
+### Two Coordination Modes
+
+**Orchestrator** — One leader assigns tasks and approves results. Best for structured workflows with clear task ownership.
+
+**Peer** — Members self-organize via a shared task board. Each peer activates with a `CHECK FIRST` directive and an ACTIVATE step to confirm readiness. Tasks route via skill matching with load balancing. The run auto-completes when all tasks reach terminal state.
 
 ### Agent IDs
 
-All team agents use the format `at--<team>--<member>`. For example, in team `product` with member `frontend`, the agent ID is `at--product--frontend`. The `team` parameter is auto-resolved for team agents — they don't need to specify it on every tool call.
+Format: `at--<team>--<member>`. Example: team `product`, member `frontend` → `at--product--frontend`. The `team` parameter is auto-resolved for team agents.
 
 ### Task State Machine
 
@@ -382,79 +265,80 @@ BLOCKED → PENDING → WORKING → COMPLETED
                   ↘           ↗
               INPUT_REQUIRED
                   ↘
+               REVISION_REQUESTED → (back to WORKING)
+                  ↘
                 FAILED / CANCELED
 ```
 
-- **BLOCKED** — Waiting for dependencies (`depends_on` tasks to complete)
+- **BLOCKED** — Waiting for `depends_on` tasks to complete
 - **PENDING** — Ready to be picked up
 - **WORKING** — Currently being worked on
-- **INPUT_REQUIRED** — Needs human input or clarification
+- **INPUT_REQUIRED** — Needs clarification from requester
+- **REVISION_REQUESTED** — Reviewer requested changes; worker picks up to revise
 - **COMPLETED** — Done (may trigger auto-learning capture)
-- **FAILED** — Failed (triggers fail-loopback if workflow template configured)
-- **CANCELED** — Canceled (e.g., by run cancellation)
+- **FAILED** — Failed (triggers fail-loopback if configured; cascade-cancels dependents)
+- **CANCELED** — Canceled (by run cancellation or cascade)
 
 ### Three-Layer Routing
 
-1. **Direct assignment** — `assign_to: "member-name"` bypasses all routing
-2. **Skill matching** — `required_skills` matched against member `skills[]` with load balancing
-3. **Fallback** — Defaults to the orchestrator (in orchestrator mode)
+1. **Direct** — `assign_to: "member-name"` bypasses all routing
+2. **Skill match** — `required_skills` matched against member `skills[]` with load balancing
+3. **Fallback** — Orchestrator (orchestrator mode) or peer auto-assign
 
-### Learning System
+### CLI Agents
 
-Learnings are auto-captured on task COMPLETED/FAILED:
-- **Explicit** — Provide `learning: { content, confidence, category }` on task update
-- **Auto-capture** — Generated from task result/failure message when no explicit learning given
-- Categories: `failure`, `pattern`, `fix`, `insight`
-- Stored in KV with key `learnings:<category>:<task_id>` for cross-run persistence
+Members can run as external CLI agents: `"claude"`, `"codex"`, `"gemini"`. They spawn on-demand when assigned a task.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `cwd` | string | Working directory |
+| `thinking` | boolean | Enable extended thinking |
+| `verbose` | boolean | Verbose CLI output |
+| `extra_args` | string[] | Additional CLI flags |
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/team status [name]` | Show run progress and task board |
+| `/team list` | List all teams |
+| `/team stop <name>` | Cancel current run |
+| `/team agents` | CLI agent status |
+| `/team logs <team/member>` | CLI agent log path |
+| `/team start <team/member>` | Manually spawn CLI agent |
+| `/team stop-agent <team/member>` | Kill CLI agent |
 
 ---
 
-## 8. Troubleshooting
+## 5. Troubleshooting
 
 ### Common Config Errors
 
-| Error Message | Fix |
-|---------------|-----|
-| `'coordination' must be "orchestrator" or "peer"` | Check spelling of coordination field |
+| Error | Fix |
+|-------|-----|
+| `'coordination' must be "orchestrator" or "peer"` | Check spelling |
 | `orchestrator mode requires an 'orchestrator' field` | Add `"orchestrator": "<member-key>"` |
-| `orchestrator "X" is not listed in members` | Orchestrator key must be a key in members |
-| `must have at least one member` | Add at least one member object |
-| `must have 'role' or 'role_file'` | Every member needs a role description |
-| `'cli' must be one of claude, codex, gemini` | Check cli field value |
+| `orchestrator "X" is not listed in members` | Use a key from `members` |
+| `must have at least one member` | Add a member |
+| `must have 'role' or 'role_file'` | Add role description |
+| `'cli' must be one of claude, codex, gemini` | Check cli value |
 
 ### Runtime Issues
 
-- **"No active run"** — Call `team_run(action: "start", goal: "...")` first
-- **Gate blocked** — Satisfy the gate condition (add deliverables, result, or use correct approver)
-- **Task stuck in BLOCKED** — Its `depends_on` tasks haven't completed yet; query them with `team_task(action: "query")`
-
-### State Files
-
-State files are stored in the directory resolved by `resolveStateDir()` under `plugins/agent-teams/`. The exact path depends on your OpenClaw runtime configuration.
-
-Key state subdirectories:
-- `kv/` — Key-value store per team
-- `runs/` — Run and task state per team
-- `messages/` — Direct messages per team
-- `activity/` — Activity log per team
-- `broadcast.jsonl` — Real-time event stream
-
-Monitor broadcasts: `tail -f <state-dir>/plugins/agent-teams/broadcast.jsonl | jq`
-
-Query activity programmatically: `team_inbox(source: "activity", filter_type: "task_failed")`
+- **"No active run"** — Call `team_run(action: "start")` first
+- **Gate blocked** — Add required deliverables/result, or use correct approver
+- **Task stuck in BLOCKED** — Check dependencies: `team_task(action: "query", filter_status: ["BLOCKED"])`
 
 For more, see `references/troubleshooting.md`.
 
 ---
 
-## Config Defaults Reference
-
-These defaults are applied when fields are omitted:
+## Config Defaults
 
 | Field | Default |
 |-------|---------|
 | `workflow.max_rounds` | `10` |
-| `workflow.timeout` | `600` (seconds) |
+| `workflow.timeout` | `900` (seconds) |
 | `knowledge.retention` | `"across-runs"` |
 | `knowledge.consolidation` | `true` |
 | `knowledge.notify_leader` | `true` |

@@ -1,8 +1,17 @@
 # Config Examples
 
-6 ready-to-use team configurations. Copy the JSON block into your OpenClaw plugin config.
+6 ready-to-use team configurations, ready to apply directly.
 
-All examples show the content of the `pluginConfig` for the `agent-teams` plugin.
+All examples show the `pluginConfig` content for the `agent-teams` plugin.
+
+### How to Apply Any Example
+
+Replace `<JSON>` with the config block (on one line, properly escaped):
+
+```bash
+openclaw config set plugins.entries.agent-teams.config --strict-json '<JSON>'
+openclaw gateway restart
+```
 
 ---
 
