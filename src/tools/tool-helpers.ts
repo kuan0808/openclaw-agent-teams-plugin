@@ -98,6 +98,33 @@ export function requireTeamAgent(
   );
 }
 
+// ── Stale session guard ─────────────────────────────────────────────────
+
+/**
+ * Reject tool calls from agents whose session was explicitly invalidated
+ * by run cancellation or completion. Only applies to team agents
+ * with run-scoped sessions.
+ *
+ * Uses the invalidatedSessions set (populated by cleanupRunSessions)
+ * rather than checking sessionIndex absence — this avoids false positives
+ * when sessions were never registered (e.g., in test environments).
+ */
+export function checkSessionStillActive(
+  agentId: string | undefined,
+  sessionKey: string | undefined,
+): ReturnType<typeof errorResult> | null {
+  if (!sessionKey || !isTeamAgent(agentId)) return null;
+  const parsed = parseRunSessionKey(sessionKey);
+  if (!parsed) return null;
+  const registry = getRegistry();
+  if (registry.invalidatedSessions.has(sessionKey)) {
+    return errorResult(
+      `Your session is no longer active (run was canceled or completed). Stop all work immediately.`,
+    );
+  }
+  return null;
+}
+
 // ── Counter restoration ─────────────────────────────────────────────────
 
 /**

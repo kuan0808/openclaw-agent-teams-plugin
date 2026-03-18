@@ -1,7 +1,11 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   collectAllAgentIds,
+  createWorkspaces,
   injectAgents,
   provisionAgents,
 } from "../src/setup/agent-provisioner.js";
@@ -161,5 +165,21 @@ describe("injectAgents", () => {
     );
     expect(runtimeConfig.agents.defaults.subagents).toBeUndefined();
     expect(runtimeConfig.tools.sessions.visibility).toBe("all");
+  });
+});
+
+describe("createWorkspaces", () => {
+  it("creates workspace directory and .openclaw subdirectory", async () => {
+    const tmpDir = path.join(os.tmpdir(), `at-ws-test-${Date.now()}`);
+    const agents = provisionAgents(config, tmpDir);
+    await createWorkspaces(agents);
+
+    for (const agent of agents) {
+      if (!agent.workspace) continue;
+      expect(fs.existsSync(agent.workspace)).toBe(true);
+      expect(fs.existsSync(path.join(agent.workspace, ".openclaw"))).toBe(true);
+    }
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

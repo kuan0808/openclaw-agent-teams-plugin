@@ -126,6 +126,7 @@ describe("resolveToolContext error messages", () => {
       teams: storesMap,
       memberSessions: new Map(),
       sessionIndex: new Map(),
+      invalidatedSessions: new Set(),
       getTeamStores: (team: string) => storesMap.get(team),
       getTeamConfig: (team: string) => teams[team],
       enqueueSystemEvent: vi.fn(() => true),

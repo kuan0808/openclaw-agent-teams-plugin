@@ -102,6 +102,7 @@ function createMockRegistry(stores: TeamStores): PluginRegistry {
     teams: new Map([["dev", stores]]),
     memberSessions: new Map(),
     sessionIndex: new Map(),
+    invalidatedSessions: new Set(),
     getTeamStores: (team: string) => team === "dev" ? stores : undefined,
     getTeamConfig: (team: string) => team === "dev" ? {
       description: "Dev team",

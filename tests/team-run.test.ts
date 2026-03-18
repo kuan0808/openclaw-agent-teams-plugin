@@ -48,6 +48,7 @@ function setTestRegistry(teamConfig: TeamConfig, stores: TeamStores) {
     teams: new Map([["dev", stores]]),
     memberSessions: new Map(),
     sessionIndex: new Map(),
+    invalidatedSessions: new Set(),
     getTeamStores: (team: string) => (team === "dev" ? stores : undefined),
     getTeamConfig: (team: string) => (team === "dev" ? teamConfig : undefined),
     enqueueSystemEvent: vi.fn(() => true),
@@ -124,10 +125,12 @@ describe("teamRunTool", () => {
     expect(details.WARNING).toBe(
       "Peer-mode task creation must come from peer members, not the main session.",
     );
-    expect(details.next_steps).toEqual([
-      `Send to peer agent: sessions_send({ message: "Collaborate on the team goal: Build feature Y. First inspect existing tasks and inbox. If you already have active tasks, continue them before creating more work for yourself.", sessionKey: "agent:at--dev--alice:run:run-1" })`,
-      `Send to peer agent: sessions_send({ message: "Collaborate on the team goal: Build feature Y. First inspect existing tasks and inbox. If you already have active tasks, continue them before creating more work for yourself.", sessionKey: "agent:at--dev--carol:run:run-1" })`,
-    ]);
+    const steps = details.next_steps as string[];
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toContain("sessions_send");
+    expect(steps[0]).toContain("agent:at--dev--alice:run:run-1");
+    expect(steps[0]).toContain("MUST create tasks");
+    expect(steps[1]).toContain("agent:at--dev--carol:run:run-1");
   });
 
   it("rejects start when active run exists (active run guard)", async () => {
@@ -278,6 +281,7 @@ describe("teamRunTool", () => {
         ])],
       ]),
       sessionIndex: new Map(),
+      invalidatedSessions: new Set(),
       getTeamStores: (team: string) => (team === "dev" ? stores : undefined),
       getTeamConfig: (team: string) => (team === "dev" ? teamConfig : undefined),
       enqueueSystemEvent: vi.fn(() => true),

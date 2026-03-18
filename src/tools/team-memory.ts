@@ -5,7 +5,7 @@
  */
 
 import { Type, type Static } from "@sinclair/typebox";
-import { textResult, errorResult, resolveToolContext, safeSaveAll, LEARNINGS_KEY_PREFIX, sanitizeDocumentKey, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, safeSaveAll, LEARNINGS_KEY_PREFIX, sanitizeDocumentKey, checkSessionStillActive, type ToolContext } from "./tool-helpers.js";
 import { getRegistry } from "../registry.js";
 import type { TeamStores } from "../registry.js";
 import type { ResolvedTeamContext } from "../context.js";
@@ -85,6 +85,8 @@ export function teamMemoryTool(ctx: ToolContext) {
     ) {
       const resolved = resolveToolContext(ctx.agentId, params.team);
       if (!resolved.ok) return resolved.error;
+      const staleGuard = checkSessionStillActive(ctx.agentId, ctx.sessionKey);
+      if (staleGuard) return staleGuard;
       const { teamCtx, stores } = resolved;
 
       // Check shared_memory.enabled guard

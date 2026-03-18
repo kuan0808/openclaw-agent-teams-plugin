@@ -209,6 +209,7 @@ export async function createWorkspaces(agents: ProvisionedAgent[]): Promise<void
   await Promise.all(
     agents
       .filter((a) => a.workspace)
-      .map((a) => ensureDir(a.workspace!)),
+      // ensureDir uses recursive mkdir — creating .openclaw/ also creates the parent
+      .map((a) => ensureDir(path.join(a.workspace!, ".openclaw"))),
   );
 }

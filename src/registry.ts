@@ -29,6 +29,10 @@ export interface PluginRegistry {
   memberSessions: Map<string, Map<string, RunSession>>;   // agentId -> Map<runId, RunSession>
   sessionIndex: Map<string, { agentId: string; runId: string }>;  // sessionKey -> { agentId, runId }
 
+  // Sessions explicitly invalidated by run cancellation/completion.
+  // Used by checkSessionStillActive to reject tool calls from stale agents.
+  invalidatedSessions: Set<string>;
+
   getTeamStores(team: string): TeamStores | undefined;
   getTeamConfig(team: string): TeamConfig | undefined;
   enqueueSystemEvent: (text: string, options: { sessionKey: string }) => boolean;
@@ -80,13 +84,26 @@ export function registerRunSession(
  * Clean up all session registry entries for a given runId.
  * Used after archiving a completed/canceled run.
  */
+const MAX_INVALIDATED_SESSIONS = 500;
+
 export function cleanupRunSessions(registry: PluginRegistry, runId: string): void {
   for (const [agentId, agentSessions] of registry.memberSessions) {
     const session = agentSessions.get(runId);
     if (session) {
+      registry.invalidatedSessions.add(session.sessionKey);
       registry.sessionIndex.delete(session.sessionKey);
       agentSessions.delete(runId);
       if (agentSessions.size === 0) registry.memberSessions.delete(agentId);
+    }
+  }
+  // Prevent unbounded growth: trim oldest entries when cap exceeded.
+  if (registry.invalidatedSessions.size > MAX_INVALIDATED_SESSIONS) {
+    const excess = registry.invalidatedSessions.size - MAX_INVALIDATED_SESSIONS;
+    let removed = 0;
+    for (const key of registry.invalidatedSessions) {
+      if (removed >= excess) break;
+      registry.invalidatedSessions.delete(key);
+      removed++;
     }
   }
 }

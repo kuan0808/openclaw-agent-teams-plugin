@@ -7,7 +7,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { getRegistry, resolveAgentSession } from "../registry.js";
 import { makeAgentId } from "../types.js";
-import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, requireTeamAgent, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, requireTeamAgent, checkSessionStillActive, type ToolContext } from "./tool-helpers.js";
 
 // ── Parameters ──────────────────────────────────────────────────────────
 
@@ -55,6 +55,8 @@ export function teamSendTool(ctx: ToolContext) {
 
       const resolved = resolveToolContext(ctx.agentId, params.team);
       if (!resolved.ok) return resolved.error;
+      const staleGuard = checkSessionStillActive(ctx.agentId, ctx.sessionKey);
+      if (staleGuard) return staleGuard;
       const { teamCtx, stores } = resolved;
 
       if (!params.to && !params.topic) {

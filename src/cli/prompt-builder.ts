@@ -233,10 +233,14 @@ The run is already started. Do NOT call team_run(action: "start").
 
   // Peer mode
   return `## Decision Flow (Peer Collaboration)
+**MANDATORY: You MUST use the task system. Do NOT work without creating tasks first.**
+
 1. **CHECK FIRST**: Call team_task(action: "query") and team_inbox before doing anything.
 2. If tasks already exist for you, work on them. Do NOT create duplicate tasks.
-3. If no tasks exist yet, create tasks for the team goal. Assign each task to the best-suited
-   peer (including yourself). Keep tasks small — one concrete deliverable each.
+3. **CREATE TASKS** if none exist for the team goal:
+   - Call team_task(action: "create", description: "...", assign_to: "member") for each piece.
+   - Assign tasks to the best-suited peer (including yourself). One task per deliverable.
+   - This step is NOT optional — skipping it breaks progress tracking for the entire team.
 4. **ACTIVATE**: After creating tasks, check each response for \`REQUIRED_ACTION\`.
    Execute every \`sessions_send(...)\` call to activate peers assigned to new tasks.
 5. **CRITICAL** — When done, you MUST call team_task to mark your task complete:

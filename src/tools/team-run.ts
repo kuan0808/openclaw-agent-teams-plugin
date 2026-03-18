@@ -11,7 +11,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { getRegistry, cleanupRunSessions } from "../registry.js";
 import { generateTaskChain } from "../workflow/template-engine.js";
-import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, countByStatus, collectLearnings, clearLearnings, consolidateLearnings, notifyRequester, DESCRIPTION_PREVIEW_LEN, RESULT_PREVIEW_LEN, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, countByStatus, collectLearnings, clearLearnings, consolidateLearnings, notifyRequester, checkSessionStillActive, DESCRIPTION_PREVIEW_LEN, RESULT_PREVIEW_LEN, type ToolContext } from "./tool-helpers.js";
 import { spawnCliIfNeeded } from "./cli-spawn-helper.js";
 import { makeAgentId, makeRunSessionKey, isCliMember, type TaskState as TaskStateType } from "../types.js";
 import { checkRunLimits, handleEnforcementViolation, shouldOrchestratorAutoComplete, handleOrchestratorAutoComplete } from "../enforcement.js";
@@ -66,6 +66,8 @@ export function teamRunTool(ctx: ToolContext) {
     ) {
       const resolved = resolveToolContext(ctx.agentId, params.team);
       if (!resolved.ok) return resolved.error;
+      const staleGuard = checkSessionStillActive(ctx.agentId, ctx.sessionKey);
+      if (staleGuard) return staleGuard;
       const { teamCtx, stores } = resolved;
 
       const { runs, activity } = stores;
@@ -265,7 +267,7 @@ export function teamRunTool(ctx: ToolContext) {
                 .map(([memberKey]) => {
                   const agentId = makeAgentId(teamCtx.team, memberKey);
                   const peerRunSessionKey = makeRunSessionKey(agentId, result.run_id);
-                  return `Send to peer agent: sessions_send({ message: ${JSON.stringify(`Collaborate on the team goal: ${params.goal}. First inspect existing tasks and inbox. If you already have active tasks, continue them before creating more work for yourself.`)}, sessionKey: ${JSON.stringify(peerRunSessionKey)} })`;
+                  return `Send to peer agent: sessions_send({ message: ${JSON.stringify(`You MUST create tasks before doing any work. Goal: ${params.goal}\n\nStep 1: Call team_task(action: "query") to check existing tasks.\nStep 2: If no tasks exist, call team_task(action: "create") for each piece of work — assign to yourself and peers based on skills.\nStep 3: Only THEN start working on your assigned tasks.\n\nDo NOT skip task creation — the team relies on it for coordination and progress tracking.`)}, sessionKey: ${JSON.stringify(peerRunSessionKey)} })`;
                 });
               response.next_steps = peerSteps;
               if (peerSteps.length > 0) {
@@ -390,6 +392,17 @@ export function teamRunTool(ctx: ToolContext) {
                   };
                   statusResult.REQUIRED_ACTION =
                     `All tasks are done. Complete the run: team_run(action: "complete", team: "${teamCtx.team}", result: "<summary of results>")`;
+                }
+              }
+
+              // Zero-task safeguard for peer runs
+              if (teamConfig.coordination === "peer" && run.tasks.length === 0) {
+                const runAgeMs = Date.now() - run.started_at;
+                if (runAgeMs > 60_000) {
+                  statusResult.WARNING =
+                    `Peer run has been active for ${Math.round(runAgeMs / 1000)}s with ZERO tasks. ` +
+                    `Peer agents must create tasks using team_task(action: "create"). ` +
+                    `Without tasks, progress cannot be tracked and the run cannot auto-complete.`;
                 }
               }
             }
@@ -521,6 +534,17 @@ export function teamRunTool(ctx: ToolContext) {
 
             if (!completeResult.ok) {
               return errorResult(`Failed to complete run for team "${teamCtx.team}".`);
+            }
+
+            // Warn if peer run completed with 0 tasks (task system bypassed)
+            if (teamConfig?.coordination === "peer") {
+              const completingRun = runs.getRun(teamCtx.team, targetRunId);
+              if (completingRun.found && completingRun.run.tasks.length === 0) {
+                activity.log(teamCtx.team, teamCtx.member, "run_completed",
+                  "WARNING: Peer run completed with 0 tasks — task system was bypassed", {
+                    metadata: { warning: "zero_tasks", run_id: targetRunId },
+                  });
+              }
             }
 
             const learnings = collectLearnings(stores.kv);
@@ -659,6 +683,35 @@ export function teamRunTool(ctx: ToolContext) {
             }
 
             await safeSaveAll([runs.save(), activity.save()]);
+
+            // Signal active agents to stop and kill CLI processes before cleanup
+            let cliKilled = false;
+            if (teamConfig && targetRunId) {
+              for (const [memberKey, memberCfg] of Object.entries(teamConfig.members)) {
+                const agentId = makeAgentId(teamCtx.team, memberKey);
+                if (isCliMember(memberCfg)) {
+                  if (registry.cliSpawner?.isAlive(agentId)) {
+                    registry.cliSpawner.kill(agentId);
+                    activity.log(teamCtx.team, teamCtx.member, "task_canceled",
+                      `Killed CLI agent ${memberKey} on run cancellation`, {
+                        metadata: { agent_id: agentId },
+                      });
+                    cliKilled = true;
+                  }
+                } else {
+                  const runSession = registry.memberSessions.get(agentId)?.get(targetRunId);
+                  if (runSession) {
+                    registry.enqueueSystemEvent(
+                      `[${teamCtx.team} Team] Run canceled: "${params.reason ?? "no reason"}". STOP all work immediately. Do not call any more team tools.`,
+                      { sessionKey: runSession.sessionKey },
+                    );
+                  }
+                }
+              }
+              if (cliKilled) {
+                await safeSaveAll([activity.save()]);
+              }
+            }
 
             // Archive and clean up canceled run
             if (targetRunId) {

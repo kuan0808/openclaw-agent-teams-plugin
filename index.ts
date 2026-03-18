@@ -136,6 +136,7 @@ export default {
       teams: _teamsMap,
       memberSessions: _memberSessions,
       sessionIndex: _sessionIndex,
+      invalidatedSessions: new Set(),
       getTeamStores: (team: string) => _teamsMap!.get(team),
       getTeamConfig: (team: string) => config.teams[team],
       enqueueSystemEvent: api.runtime.system.enqueueSystemEvent,

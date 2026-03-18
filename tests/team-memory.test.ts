@@ -32,6 +32,7 @@ function setTestRegistry(teamConfig: TeamConfig, stores: TeamStores) {
     teams: new Map([["dev", stores]]),
     memberSessions: new Map(),
     sessionIndex: new Map(),
+    invalidatedSessions: new Set(),
     getTeamStores: (team: string) => (team === "dev" ? stores : undefined),
     getTeamConfig: (team: string) => (team === "dev" ? teamConfig : undefined),
     enqueueSystemEvent: vi.fn(() => true),

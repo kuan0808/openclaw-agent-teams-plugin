@@ -68,6 +68,7 @@ function setupRegistry(st: TeamStores): void {
     sessionIndex: new Map([
       ["session-1", { agentId: "at--dev--alice", runId: "run-1" }],
     ]),
+    invalidatedSessions: new Set(),
     getTeamStores: (team: string) => (team === "dev" ? st : undefined),
     getTeamConfig: (team: string) => (team === "dev" ? reg.config.teams.dev : undefined),
     enqueueSystemEvent: () => true,
@@ -447,6 +448,7 @@ describe("compaction hook: learnings filter", () => {
       sessionIndex: new Map([
         ["session-1", { agentId: "at--dev--alice", runId: "run-1" }],
       ]),
+      invalidatedSessions: new Set(),
       getTeamStores: (team: string) => (team === "dev" ? stores : undefined),
       getTeamConfig: (team: string) => (team === "dev" ? reg.config.teams.dev : undefined),
       enqueueSystemEvent: (text: string) => { enqueuedText = text; return true; },
@@ -496,6 +498,7 @@ describe("agent-start hook: event topics awareness", () => {
       teams: new Map([["dev", stores]]),
       memberSessions: new Map(),
       sessionIndex: new Map(),
+      invalidatedSessions: new Set(),
       getTeamStores: (team: string) => (team === "dev" ? stores : undefined),
       getTeamConfig: (team: string) => (team === "dev" ? reg.config.teams.dev : undefined),
       enqueueSystemEvent: () => true,
@@ -536,6 +539,7 @@ describe("agent-start hook: event topics awareness", () => {
       teams: new Map([["dev", stores]]),
       memberSessions: new Map(),
       sessionIndex: new Map(),
+      invalidatedSessions: new Set(),
       getTeamStores: (team: string) => (team === "dev" ? stores : undefined),
       getTeamConfig: (team: string) => (team === "dev" ? reg.config.teams.dev : undefined),
       enqueueSystemEvent: () => true,
