@@ -4,7 +4,7 @@
 
 **Define multi-agent teams in JSON. They coordinate through shared tools, messaging, and memory — no custom orchestration code needed.**
 
-[![npm](https://img.shields.io/npm/v/agent-teams?style=flat-square&color=cb3837)](https://www.npmjs.com/package/agent-teams) [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE) [![OpenClaw >= 2026.3.12](https://img.shields.io/badge/OpenClaw-%3E%3D2026.3.12-7c4dff?style=flat-square)](https://github.com/kuan0808/openclaw) [![Node >= 22](https://img.shields.io/badge/Node-%3E%3D22-43853d?style=flat-square)](https://nodejs.org) [![Tests](https://img.shields.io/badge/tests-351%20passing-brightgreen?style=flat-square)]()
+[![npm](https://img.shields.io/npm/v/agent-teams?style=flat-square&color=cb3837)](https://www.npmjs.com/package/agent-teams) [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE) [![OpenClaw >= 2026.3.12](https://img.shields.io/badge/OpenClaw-%3E%3D2026.3.12-7c4dff?style=flat-square)](https://github.com/kuan0808/openclaw) [![Node >= 22](https://img.shields.io/badge/Node-%3E%3D22-43853d?style=flat-square)](https://nodejs.org) [![Tests](https://img.shields.io/badge/tests-350%20passing-brightgreen?style=flat-square)]()
 
 </div>
 
@@ -155,8 +155,7 @@ Declare team → Start run → Agents coordinate → Run completes
       "orchestrator": "pm",
       "members": {
         "pm": {
-          "role": "Project manager. Breaks down goals, assigns work, reviews results.",
-          "can_delegate": true
+          "role": "Project manager. Breaks down goals, assigns work, reviews results."
         },
         "frontend": {
           "role": "Frontend developer specializing in React and UI/UX",
@@ -186,8 +185,7 @@ Declare team → Start run → Agents coordinate → Run completes
       "orchestrator": "lead",
       "members": {
         "lead": {
-          "role": "Tech lead. Decomposes tasks, reviews code, requests revisions.",
-          "can_delegate": true
+          "role": "Tech lead. Decomposes tasks, reviews code, requests revisions."
         },
         "dev": {
           "role": "Backend developer",
@@ -257,7 +255,6 @@ Declare team → Start run → Agents coordinate → Run completes
 | `role_file` | string | — | Path to file containing role description |
 | `model` | `{ primary: string }` | — | Model override |
 | `skills` | string[] | — | Skill tags for routing |
-| `can_delegate` | boolean | `false` | Can create tasks for others |
 | `tools` | `{ deny?, allow? }` | — | Tool access restrictions |
 | `cli` | `"claude"` \| `"codex"` \| `"gemini"` | — | Spawn as external CLI agent |
 | `cli_options` | object | — | CLI-specific settings |
@@ -456,7 +453,7 @@ team_inbox(source: "activity")  # Queryable audit trail
 ```bash
 npm install              # Install dependencies
 npm run build            # Build plugin + MCP bridge
-npm test                 # Run all tests — 351 across 31 files
+npm test                 # Run all tests — 350 across 31 files
 npm run dev              # Watch mode
 npm run typecheck        # Type check without emit
 ```

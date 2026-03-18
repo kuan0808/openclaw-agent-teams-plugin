@@ -31,6 +31,9 @@ Determine what the user needs and jump to the right section:
 | "How does this work" | **Section 4: Key Concepts** |
 | "Error / broken" | **Section 5** + `references/troubleshooting.md` |
 | "Show examples" | `references/config-examples.md` |
+| "Role files / prompts" | `references/role-file-guide.md` |
+| "CLI agents setup" | `references/cli-agents.md` |
+| "Orchestrator vs peer" | `references/coordination-patterns.md` |
 
 **Golden rules:**
 - Do NOT dump all information at once. Ask clarifying questions.
@@ -65,17 +68,18 @@ Present these options to the user:
 ```
 I can help you set up a team! Pick a starting point:
 
-1. 🔍 Code Review Pair — Two reviewers with complementary focuses (security + architecture)
-2. 👥 Product Team — PM coordinates frontend, backend, and QA
-3. 🔄 Pipeline — Staged workflow (design → implement → review) with quality gates
-4. 🤖 CLI Agent Team — Mix native agents with Claude/Codex/Gemini CLI agents
-5. ✏️ Custom — Describe what you need and I'll design the config
+1. 🔍 Co-Reviewer — Multi-perspective code/content review (peer, 3 agents)
+2. 👥 Product Team — PM coordinates frontend, backend, and QA (orchestrator)
+3. 🔬 Research Team — Research + analysis + report writing (peer, 3 agents)
+4. ✍️ Content Creation — Editor-led drafting + fact-checking pipeline (orchestrator)
+5. 🔄 Pipeline — Staged workflow with quality gates (orchestrator)
+6. ✏️ Custom — Describe what you need and I'll design the config
 
 Which one sounds closest, or tell me what you have in mind?
 ```
 
-If the user picks 1–4, jump to **Step 2: Apply Template**.
-If the user picks 5 or describes something custom, jump to **Step 3: Custom Builder**.
+If the user picks 1–5, jump to **Step 2: Apply Template**.
+If the user picks 6 or describes something custom, jump to **Step 3: Custom Builder**.
 If the user just describes what they want without picking a number, infer the best match or go to Step 3.
 
 ### Step 2: Apply Template
@@ -84,10 +88,11 @@ Load the matching config from `references/config-examples.md`:
 
 | Choice | Template | Coordination |
 |--------|----------|-------------|
-| 1 | Code Review Pair (example 2) | peer |
+| 1 | Co-Reviewer (example 2) | peer |
 | 2 | Product Team (example 3) | orchestrator |
-| 3 | Pipeline Team (example 5) | orchestrator |
-| 4 | CLI Agent Team (example 4) | orchestrator |
+| 3 | Research Team (example 5) | peer |
+| 4 | Content Creation (example 7) | orchestrator |
+| 5 | Pipeline (example 4) | orchestrator |
 
 **Present the config** and ask if the user wants to customize it:
 
@@ -188,7 +193,7 @@ For full parameter docs, see `references/tool-reference.md`.
 
 ## 3. Workflow Templates
 
-Templates auto-generate a chain of dependent tasks when a run starts. Define `stages` (each becomes a task), `fail_handlers` (loopback on failure), and `gates` (quality checks on transitions). See `references/workflow-templates.md` for full docs and examples, or `references/config-examples.md` example 5 for a complete pipeline config.
+Templates auto-generate a chain of dependent tasks when a run starts. Define `stages` (each becomes a task), `fail_handlers` (loopback on failure), and `gates` (quality checks on transitions). See `references/workflow-templates.md` for full docs and examples, or `references/config-examples.md` example 4 for a complete pipeline config.
 
 ---
 
