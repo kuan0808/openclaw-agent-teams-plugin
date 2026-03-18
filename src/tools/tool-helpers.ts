@@ -9,7 +9,7 @@
 import { resolveTeamContext, type ResolvedTeamContext } from "../context.js";
 import { getRegistry } from "../registry.js";
 import type { TeamStores } from "../registry.js";
-import { parseRunSessionKey, isTeamAgent, parseAgentId } from "../types.js";
+import { parseRunSessionKey, isTeamAgent } from "../types.js";
 
 // ── Re-exports from sub-modules ─────────────────────────────────────────
 

@@ -64,6 +64,7 @@ function parseSinceParam(since: string | undefined): { ok: true; value: number |
 // ── Factory ─────────────────────────────────────────────────────────────
 
 export function teamInboxTool(ctx: ToolContext) {
+  const agentId = effectiveAgentId(ctx);
   return {
     name: "team_inbox",
     label: "Team Inbox",
@@ -76,7 +77,6 @@ export function teamInboxTool(ctx: ToolContext) {
       params: Params,
       _signal?: AbortSignal,
     ) {
-      const agentId = effectiveAgentId(ctx);
       // Main agent should delegate to team agents, not call team_inbox directly
       const guard = requireTeamAgent(agentId, "team_inbox");
       if (guard) return guard;

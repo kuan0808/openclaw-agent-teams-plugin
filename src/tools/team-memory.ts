@@ -71,6 +71,7 @@ type Params = Static<typeof Parameters>;
 // ── Factory ─────────────────────────────────────────────────────────────
 
 export function teamMemoryTool(ctx: ToolContext) {
+  const agentId = effectiveAgentId(ctx);
   return {
     name: "team_memory",
     label: "Team Memory",
@@ -83,7 +84,6 @@ export function teamMemoryTool(ctx: ToolContext) {
       params: Params,
       _signal?: AbortSignal,
     ) {
-      const agentId = effectiveAgentId(ctx);
       const resolved = resolveToolContext(agentId, params.team);
       if (!resolved.ok) return resolved.error;
       const staleGuard = checkSessionStillActive(agentId, ctx.sessionKey);

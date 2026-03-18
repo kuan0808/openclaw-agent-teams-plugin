@@ -37,6 +37,7 @@ type Params = Static<typeof Parameters>;
 // ── Factory ─────────────────────────────────────────────────────────────
 
 export function teamSendTool(ctx: ToolContext) {
+  const agentId = effectiveAgentId(ctx);
   return {
     name: "team_send",
     label: "Team Send",
@@ -49,7 +50,6 @@ export function teamSendTool(ctx: ToolContext) {
       params: Params,
       _signal?: AbortSignal,
     ) {
-      const agentId = effectiveAgentId(ctx);
       // Main agent should delegate to team agents, not call team_send directly
       const guard = requireTeamAgent(agentId, "team_send");
       if (guard) return guard;
