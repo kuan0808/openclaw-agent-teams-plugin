@@ -14,7 +14,7 @@ import { parseRunSessionKey, isTeamAgent } from "../types.js";
 // ── Re-exports from sub-modules ─────────────────────────────────────────
 
 export { LEARNINGS_KEY_PREFIX, clearLearnings, consolidateLearnings, collectLearnings, isStructuredLearning } from "../helpers/learning-helpers.js";
-export { notifyRequester, wakeActiveNativeAssignee } from "../helpers/notification-helpers.js";
+export { notifyRequester, wakeActiveNativeAssignee, buildMemberActivationMessage } from "../helpers/notification-helpers.js";
 export { autoTransitionPendingToWorking, countByStatus } from "../helpers/task-helpers.js";
 export { textResult, errorResult, safeSaveAll, buildConsolidatedResult } from "../helpers/result-helpers.js";
 

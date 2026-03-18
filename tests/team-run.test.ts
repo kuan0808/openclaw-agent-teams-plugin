@@ -84,9 +84,13 @@ describe("teamRunTool", () => {
 
     const details = result.details as Record<string, unknown>;
     const action = details.REQUIRED_ACTION as string;
-    // Should include orchestrator activation only (workers activated later via team_task)
-    expect(action).toMatch(/sessions_send\(\{ message: "Coordinate the team by decomposing the goal into small, finishable tasks:/);
+    // Should include structured activation brief
+    expect(action).toContain("sessions_send");
     expect(action).toMatch(/sessionKey: "agent:at--dev--lead:run:run-1"/);
+    expect(action).toContain("Build feature X");
+    expect(action).toContain("DECOMPOSE");
+    expect(action).toContain("DO NOT");
+    expect(action).toContain("worker: Worker");
     // Should NOT pre-activate workers
     expect(action).not.toContain("agent:at--dev--worker:run:run-1");
     // Should instruct about system notifications for later activations
@@ -365,5 +369,125 @@ describe("teamRunTool", () => {
     expect((result.details as Record<string, unknown>).error).toContain(
       "Cannot complete run with non-terminal tasks.",
     );
+  });
+
+  it("status includes idle orchestrator warning when zero tasks past grace period", async () => {
+    const teamConfig: TeamConfig = {
+      description: "Orchestrator team",
+      coordination: "orchestrator",
+      orchestrator: "lead",
+      members: {
+        lead: { role: "Lead" },
+        worker: { role: "Worker", skills: ["coding"] },
+      },
+    };
+    const stores = makeStores({
+      runs: {
+        getRun: vi.fn(() => ({
+          found: true,
+          run: {
+            id: "run-1",
+            team: "dev",
+            goal: "Build it",
+            status: "WORKING",
+            orchestrator: "lead",
+            started_at: Date.now() - 60_000, // 60s ago — past 45s grace
+            updated_at: Date.now(),
+            tasks: [],
+          },
+        })),
+        getWorkingRuns: vi.fn(() => []),
+        listRuns: vi.fn(() => []),
+        save: vi.fn(async () => {}),
+      } as unknown as TeamStores["runs"],
+    });
+    setTestRegistry(teamConfig, stores);
+
+    const tool = teamRunTool({ agentId: "at--dev--lead", sessionKey: "agent:at--dev--lead:run:run-1" });
+    const result = await tool.execute("test", { action: "status", team: "dev", run_id: "run-1" });
+
+    const details = result.details as Record<string, unknown>;
+    expect(details.WARNING).toContain("ZERO tasks");
+    expect(details.REQUIRED_ACTION).toContain("sessions_send");
+    expect(details.REQUIRED_ACTION).toContain("NOT created any tasks");
+  });
+
+  it("status does NOT warn for orchestrator within grace period", async () => {
+    const teamConfig: TeamConfig = {
+      description: "Orchestrator team",
+      coordination: "orchestrator",
+      orchestrator: "lead",
+      members: {
+        lead: { role: "Lead" },
+        worker: { role: "Worker" },
+      },
+    };
+    const stores = makeStores({
+      runs: {
+        getRun: vi.fn(() => ({
+          found: true,
+          run: {
+            id: "run-1",
+            team: "dev",
+            goal: "Build it",
+            status: "WORKING",
+            orchestrator: "lead",
+            started_at: Date.now() - 10_000, // 10s — within 45s grace
+            updated_at: Date.now(),
+            tasks: [],
+          },
+        })),
+        getWorkingRuns: vi.fn(() => []),
+        listRuns: vi.fn(() => []),
+        save: vi.fn(async () => {}),
+      } as unknown as TeamStores["runs"],
+    });
+    setTestRegistry(teamConfig, stores);
+
+    const tool = teamRunTool({ agentId: "at--dev--lead", sessionKey: "agent:at--dev--lead:run:run-1" });
+    const result = await tool.execute("test", { action: "status", team: "dev", run_id: "run-1" });
+
+    const details = result.details as Record<string, unknown>;
+    expect(details.WARNING).toBeUndefined();
+  });
+
+  it("status does NOT warn for orchestrator that has tasks", async () => {
+    const teamConfig: TeamConfig = {
+      description: "Orchestrator team",
+      coordination: "orchestrator",
+      orchestrator: "lead",
+      members: {
+        lead: { role: "Lead" },
+        worker: { role: "Worker" },
+      },
+    };
+    const stores = makeStores({
+      runs: {
+        getRun: vi.fn(() => ({
+          found: true,
+          run: {
+            id: "run-1",
+            team: "dev",
+            goal: "Build it",
+            status: "WORKING",
+            orchestrator: "lead",
+            started_at: Date.now() - 60_000,
+            updated_at: Date.now(),
+            tasks: [{ id: "t1", team: "dev", run_id: "run-1", description: "Do stuff", status: "WORKING", assigned_to: "worker", created_at: Date.now(), updated_at: Date.now() }],
+          },
+        })),
+        getWorkingRuns: vi.fn(() => []),
+        listRuns: vi.fn(() => []),
+        save: vi.fn(async () => {}),
+      } as unknown as TeamStores["runs"],
+    });
+    setTestRegistry(teamConfig, stores);
+
+    const tool = teamRunTool({ agentId: "at--dev--lead", sessionKey: "agent:at--dev--lead:run:run-1" });
+    const result = await tool.execute("test", { action: "status", team: "dev", run_id: "run-1" });
+
+    const details = result.details as Record<string, unknown>;
+    // Should not have the idle orchestrator warning (has tasks)
+    expect(details.WARNING).toBeUndefined();
   });
 });

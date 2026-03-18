@@ -1,8 +1,7 @@
 /**
  * Agent Provisioner — auto-generate AgentConfig entries for team members.
  *
- * Injects agents into the runtime config's agents.list AND persists them
- * to disk so that loadConfig() always includes team agents.
+ * Injects agents into the runtime config's agents.list.
  */
 
 import * as path from "node:path";
@@ -145,8 +144,7 @@ export function injectAgents(
   }
 
   // Ensure sessions visibility for team messaging (belt-and-suspenders;
-  // reconcileHostRuntimeConfig also sets this, but injectAgents is called
-  // from persistAgentsToDisk too, so cover both paths).
+  // reconcileHostRuntimeConfig also sets this).
   const sessions = ensureObject(tools, "sessions");
   if (sessions.visibility !== "all") {
     sessions.visibility = "all";
@@ -161,45 +159,6 @@ export function injectAgents(
   }
 
   return injected;
-}
-
-/**
- * Persist injected agents to the config file on disk.
- *
- * This is critical because OpenClaw's loadConfig() re-reads from disk on
- * config refreshes, which would lose in-memory-only agent injections.
- * By writing to disk, team agents survive config reloads.
- *
- * Uses JSON5 to preserve the existing config format.
- */
-export async function persistAgentsToDisk(
-  configPath: string,
-  agents: ProvisionedAgent[],
-  allAgentIds?: string[],
-  log?: { info: (msg: string) => void; warn: (msg: string) => void },
-): Promise<void> {
-  const fs = await import("node:fs");
-  const JSON5 = await import("json5");
-
-  if (!fs.existsSync(configPath)) {
-    log?.warn(`Config file not found at ${configPath}, skipping disk persist.`);
-    return;
-  }
-
-  const raw = fs.readFileSync(configPath, "utf-8");
-  const diskConfig = JSON5.parse(raw);
-
-  // Inject agents (modifies diskConfig in-place)
-  const injected = injectAgents(diskConfig, agents, allAgentIds);
-
-  if (injected.length === 0) {
-    log?.info("All team agents already present in disk config.");
-    return;
-  }
-
-  // Write back as JSON with 2-space indent (preserves readability)
-  fs.writeFileSync(configPath, JSON.stringify(diskConfig, null, 2) + "\n", "utf-8");
-  log?.info(`Persisted ${injected.length} team agents to ${configPath}.`);
 }
 
 /**

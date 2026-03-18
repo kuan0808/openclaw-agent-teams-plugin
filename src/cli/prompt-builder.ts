@@ -213,7 +213,13 @@ The run is already started. Do NOT call team_run(action: "start").
      status: "REVISION_REQUESTED", message: "Specific feedback on what to fix").
 5. **COMPLETE**: When all tasks are done, call team_run(action: "complete",
    result: "Summary of what was built and delivered").
-6. **SHARE**: Store reusable knowledge with team_memory for future runs.`;
+6. **SHARE**: Store reusable knowledge with team_memory for future runs.
+
+**Common mistakes:**
+- Do NOT respond with text only — every turn should include tool calls.
+- Do NOT implement tasks yourself — delegate to team members.
+- Do NOT skip REQUIRED_ACTION in team_task responses — unactivated members will never start.
+- Do NOT create duplicate tasks for the same deliverable.`;
     }
     return `## Decision Flow (Team Member)
 1. Your assigned tasks are automatically set to WORKING. Check team_task(action: "query",
@@ -228,7 +234,12 @@ The run is already started. Do NOT call team_run(action: "start").
    address it, then resubmit as COMPLETED.
 5. After updating, check team_inbox for messages and team_task(query) for new assignments.
 6. If the response contains \`REQUIRED_ACTION\` with sessions_send calls, execute them
-   to activate members whose tasks were unblocked by your completion.`;
+   to activate members whose tasks were unblocked by your completion.
+
+**Common mistakes:**
+- Do NOT forget to call team_task(update, status: "COMPLETED") — your work will be LOST.
+- Do NOT skip deliverables in the completion update — include file paths and descriptions.
+- Do NOT ignore REQUIRED_ACTION in responses — other members may be waiting on you.`;
   }
 
   // Peer mode
@@ -250,7 +261,12 @@ The run is already started. Do NOT call team_run(action: "start").
    If you skip this, the system will not know your work is done and it will be LOST.
 6. After completing, check for new assignments: team_task(action: "query", filter: "mine").
 7. Use team_send to coordinate with peers. Use team_memory to share results.
-8. The run auto-completes when all tasks reach terminal state. No manual completion needed.`;
+8. The run auto-completes when all tasks reach terminal state. No manual completion needed.
+
+**Common mistakes:**
+- Do NOT start working without creating tasks first — progress cannot be tracked.
+- Do NOT create duplicate tasks — always check team_task(query) before creating.
+- Do NOT forget to call team_task(update, status: "COMPLETED") — your work will be LOST.`;
 }
 
 export function buildRunSummary(run: TeamRun): string {

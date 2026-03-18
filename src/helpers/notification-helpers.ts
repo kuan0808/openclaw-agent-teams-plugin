@@ -2,7 +2,7 @@
  * Requester notification and native assignee wake-up helpers.
  */
 
-import type { TeamTask } from "../types.js";
+import type { TeamTask, TeamConfig } from "../types.js";
 import type { TeamStores } from "../registry.js";
 import { getRegistry, resolveAgentSession } from "../registry.js";
 import { makeAgentId } from "../types.js";
@@ -87,4 +87,52 @@ export async function wakeActiveNativeAssignee(
   }
 
   return true;
+}
+
+/**
+ * Format a member directory listing (excluding one member, typically the orchestrator).
+ * Shared by activation briefs and reactivation messages.
+ */
+export function formatMemberDirectory(teamConfig: TeamConfig, exclude: string): string {
+  return Object.entries(teamConfig.members)
+    .filter(([k]) => k !== exclude)
+    .map(([k, cfg]) => {
+      const skills = cfg.skills?.length ? ` [${cfg.skills.join(", ")}]` : "";
+      return `- ${k}: ${cfg.role ?? "member"}${skills}`;
+    })
+    .join("\n");
+}
+
+/**
+ * Build an activation message for a member being assigned a task.
+ * Returns a string with real newlines — use JSON.stringify() when embedding in instructions.
+ */
+export function buildMemberActivationMessage(task?: { id: string; description: string }): string {
+  if (!task) {
+    return `You have been assigned tasks. Call team_task(action: "query", filter: "mine") to see your assignments.`;
+  }
+  return (
+    `Your task: ${task.description}\n\n` +
+    `Steps:\n` +
+    `1. Call team_task(action: "query", filter: "mine") to see full assignment details.\n` +
+    `2. Do your work. Share intermediate results via team_memory if useful.\n` +
+    `3. When done, you MUST call team_task(action: "update", task_id: "${task.id}", status: "COMPLETED", result: "<summary>").\n\n` +
+    `Start working now.`
+  );
+}
+
+/**
+ * Build a forceful re-activation message for an idle orchestrator
+ * that has not created any tasks.
+ */
+export function buildOrchReactivationMessage(teamConfig: TeamConfig, goal?: string): string {
+  const memberList = formatMemberDirectory(teamConfig, teamConfig.orchestrator!);
+
+  return (
+    `You have NOT created any tasks yet. Create tasks NOW.\n\n` +
+    `Call team_task(action: "create", description: "<task>", assign_to: "<member>") for each subtask.\n\n` +
+    (goal ? `Goal: ${goal}\n\n` : "") +
+    `Team members:\n${memberList}\n\n` +
+    `DO NOT respond with text only — call team_task immediately.`
+  );
 }

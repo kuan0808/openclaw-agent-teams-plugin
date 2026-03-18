@@ -21,6 +21,10 @@ describe("buildDecisionFlow", () => {
     expect(prompt).toContain("Keep tasks small and concrete");
     expect(prompt).toContain("REQUIRED_ACTION");
     expect(prompt).toContain("sessions_send");
+    // Anti-patterns
+    expect(prompt).toContain("Common mistakes");
+    expect(prompt).toContain("Do NOT respond with text only");
+    expect(prompt).toContain("Do NOT implement tasks yourself");
   });
 
   it("orchestrator decision flow does NOT say activation is automatic", () => {
@@ -55,6 +59,10 @@ describe("buildDecisionFlow", () => {
 
     expect(prompt).toContain("REQUIRED_ACTION");
     expect(prompt).toContain("activate members whose tasks were unblocked");
+    // Anti-patterns
+    expect(prompt).toContain("Common mistakes");
+    expect(prompt).toContain("Do NOT forget to call team_task(update, status: \"COMPLETED\")");
+    expect(prompt).toContain("Do NOT ignore REQUIRED_ACTION");
   });
 
   it("tells peers to finish their active work before creating more for themselves", () => {
@@ -71,5 +79,8 @@ describe("buildDecisionFlow", () => {
 
     expect(prompt).toContain("CHECK FIRST");
     expect(prompt).toContain("Do NOT create duplicate tasks");
+    // Anti-patterns
+    expect(prompt).toContain("Common mistakes");
+    expect(prompt).toContain("Do NOT start working without creating tasks first");
   });
 });

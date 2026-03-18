@@ -14,9 +14,10 @@ import { generateTaskChain } from "../workflow/template-engine.js";
 import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, countByStatus, collectLearnings, clearLearnings, consolidateLearnings, notifyRequester, checkSessionStillActive, DESCRIPTION_PREVIEW_LEN, RESULT_PREVIEW_LEN, type ToolContext } from "./tool-helpers.js";
 import { spawnCliIfNeeded } from "./cli-spawn-helper.js";
 import { makeAgentId, makeRunSessionKey, isCliMember, type TaskState as TaskStateType } from "../types.js";
-import { checkRunLimits, handleEnforcementViolation, shouldOrchestratorAutoComplete, handleOrchestratorAutoComplete } from "../enforcement.js";
+import { checkRunLimits, handleEnforcementViolation, shouldOrchestratorAutoComplete, handleOrchestratorAutoComplete, ORCH_IDLE_GRACE_MS } from "../enforcement.js";
 import { TERMINAL_TASK_STATES } from "../state/run-manager.js";
 import { fmtRunStarted, fmtRunCompleted, fmtRunCanceled } from "../helpers/notification-templates.js";
+import { buildOrchReactivationMessage, formatMemberDirectory, buildMemberActivationMessage } from "../helpers/notification-helpers.js";
 
 // ── Parameters ──────────────────────────────────────────────────────────
 
@@ -71,6 +72,30 @@ export function teamRunTool(ctx: ToolContext) {
       const { teamCtx, stores } = resolved;
 
       const { runs, activity } = stores;
+
+      /** Populate idle orchestrator warning + reactivation on a status result object. */
+      function applyIdleOrchWarning(
+        result: Record<string, unknown>,
+        run: { id: string; status: string; tasks: unknown[]; started_at: number; goal: string },
+      ): void {
+        if (
+          teamConfig?.coordination !== "orchestrator" ||
+          run.status !== "WORKING" ||
+          run.tasks.length > 0
+        ) return;
+        const runAgeMs = Date.now() - run.started_at;
+        if (runAgeMs <= ORCH_IDLE_GRACE_MS) return;
+        const orchName = teamConfig.orchestrator!;
+        const orchMember = teamConfig.members[orchName];
+        if (!orchMember || isCliMember(orchMember)) return;
+        const orchAgentId = makeAgentId(teamCtx.team, orchName);
+        const orchSessionKey = makeRunSessionKey(orchAgentId, run.id);
+        const reactivation = buildOrchReactivationMessage(teamConfig, run.goal);
+        result.WARNING =
+          `Orchestrator "${orchName}" has been active for ${Math.round(runAgeMs / 1000)}s with ZERO tasks created.`;
+        result.REQUIRED_ACTION =
+          `Re-activate the orchestrator: sessions_send({ message: ${JSON.stringify(reactivation)}, sessionKey: ${JSON.stringify(orchSessionKey)} })`;
+      }
       const registry = getRegistry();
       const teamConfig = registry.getTeamConfig(teamCtx.team);
 
@@ -255,8 +280,26 @@ export function teamRunTool(ctx: ToolContext) {
               } else if (!orchMember || !isCliMember(orchMember)) {
                 const orchRunSessionKey = makeRunSessionKey(orchId, result.run_id);
                 response.orchestrator_session = orchRunSessionKey;
+
+                // Build structured activation brief (role/goal/members/steps/boundary)
+                const memberDetails = formatMemberDirectory(teamConfig, teamConfig.orchestrator!);
+
+                const activationMessage =
+                  `**Role:** Orchestrator for team "${teamCtx.team}". Coordinate — never implement.\n\n` +
+                  `**Goal:** ${params.goal}\n\n` +
+                  `**Team members:**\n${memberDetails}\n\n` +
+                  `**Steps:**\n` +
+                  `1. DECOMPOSE — Call team_task(action: "create", description: "<task>", assign_to: "<member>") for each subtask. Assign to the best-suited member.\n` +
+                  `2. ACTIVATE — Check each team_task response for REQUIRED_ACTION. Execute every sessions_send(...) listed.\n` +
+                  `3. MONITOR — Use team_task(action: "query") and team_inbox to track. Review quality on completion.\n` +
+                  `4. COMPLETE — When all tasks done: team_run(action: "complete", result: "<summary>").\n\n` +
+                  `**Execution boundary:**\n` +
+                  `- Deliver: task decomposition → delegation → monitoring → completion\n` +
+                  `- DO NOT: implement tasks yourself, skip task creation, or respond with text only\n\n` +
+                  `Start with step 1 now.`;
+
                 response.REQUIRED_ACTION =
-                  `Call: sessions_send({ message: ${JSON.stringify(`Coordinate the team by decomposing the goal into small, finishable tasks: ${params.goal.slice(0, 100)}`)}, sessionKey: ${JSON.stringify(orchRunSessionKey)} })\n` +
+                  `Call: sessions_send({ message: ${JSON.stringify(activationMessage)}, sessionKey: ${JSON.stringify(orchRunSessionKey)} })\n` +
                   `Then wait. The team works autonomously. You will receive activation notifications — when you do, call each sessions_send listed in them.`;
                 response.WARNING =
                   "Execute the sessions_send call above. When you receive activation notifications, call each listed sessions_send.";
@@ -334,9 +377,8 @@ export function teamRunTool(ctx: ToolContext) {
                     // Stale — treat as needing fresh activation
                     const sk = makeRunSessionKey(aid, runId);
                     const pt = run.tasks.find((tt) => tt.assigned_to === t.assigned_to && tt.status === "PENDING");
-                    const desc = pt ? pt.description.slice(0, 80) : "your assigned tasks";
                     pendingActivations.push(
-                      `${t.assigned_to}: sessions_send({ message: "You have been assigned: ${desc}. Check team_task(query, filter: mine) for details.", sessionKey: "${sk}" })`,
+                      `${t.assigned_to}: sessions_send({ message: ${JSON.stringify(buildMemberActivationMessage(pt ?? undefined))}, sessionKey: "${sk}" })`,
                     );
                   } else {
                     activeButPending.push(t.assigned_to);
@@ -345,9 +387,8 @@ export function teamRunTool(ctx: ToolContext) {
                 }
                 const sk = makeRunSessionKey(aid, runId);
                 const pt2 = run.tasks.find((tt) => tt.assigned_to === t.assigned_to && tt.status === "PENDING");
-                const desc2 = pt2 ? pt2.description.slice(0, 80) : "your assigned tasks";
                 pendingActivations.push(
-                  `${t.assigned_to}: sessions_send({ message: "You have been assigned: ${desc2}. Check team_task(query, filter: mine) for details.", sessionKey: "${sk}" })`,
+                  `${t.assigned_to}: sessions_send({ message: ${JSON.stringify(buildMemberActivationMessage(pt2 ?? undefined))}, sessionKey: "${sk}" })`,
                 );
               }
               if (pendingActivations.length > 0) {
@@ -364,7 +405,7 @@ export function teamRunTool(ctx: ToolContext) {
                   const pendingTask = run.tasks.find((t) => t.assigned_to === memberName && t.status === "PENDING");
                   if (pendingTask) {
                     reactivationCmds.push(
-                      `${memberName}: sessions_send({ message: "Work on: ${pendingTask.description.slice(0, 80)}", sessionKey: "${sk}" })`,
+                      `${memberName}: sessions_send({ message: ${JSON.stringify(buildMemberActivationMessage(pendingTask))}, sessionKey: "${sk}" })`,
                     );
                   }
                 }
@@ -405,6 +446,9 @@ export function teamRunTool(ctx: ToolContext) {
                     `Without tasks, progress cannot be tracked and the run cannot auto-complete.`;
                 }
               }
+
+              // Idle orchestrator safeguard: WORKING run with zero tasks past grace period
+              applyIdleOrchWarning(statusResult, run);
             }
 
             return textResult(statusResult);
@@ -456,9 +500,8 @@ export function teamRunTool(ctx: ToolContext) {
                     if (ts - rs.createdAt > STALE_MS) {
                       const sk = makeRunSessionKey(aid, singleRun.id);
                       const pt = run.tasks.find((tt) => tt.assigned_to === t.assigned_to && tt.status === "PENDING");
-                      const desc = pt ? pt.description.slice(0, 80) : "your assigned tasks";
                       pendingActs.push(
-                        `${t.assigned_to}: sessions_send({ message: "You have been assigned: ${desc}. Check team_task(query, filter: mine) for details.", sessionKey: "${sk}" })`,
+                        `${t.assigned_to}: sessions_send({ message: ${JSON.stringify(buildMemberActivationMessage(pt ?? undefined))}, sessionKey: "${sk}" })`,
                       );
                     } else {
                       activePending.push(t.assigned_to);
@@ -467,9 +510,8 @@ export function teamRunTool(ctx: ToolContext) {
                   }
                   const sk = makeRunSessionKey(aid, singleRun.id);
                   const pt2 = run.tasks.find((tt) => tt.assigned_to === t.assigned_to && tt.status === "PENDING");
-                  const desc2 = pt2 ? pt2.description.slice(0, 80) : "your assigned tasks";
                   pendingActs.push(
-                    `${t.assigned_to}: sessions_send({ message: "You have been assigned: ${desc2}. Check team_task(query, filter: mine) for details.", sessionKey: "${sk}" })`,
+                    `${t.assigned_to}: sessions_send({ message: ${JSON.stringify(buildMemberActivationMessage(pt2 ?? undefined))}, sessionKey: "${sk}" })`,
                   );
                 }
                 if (pendingActs.length > 0) {
@@ -484,7 +526,7 @@ export function teamRunTool(ctx: ToolContext) {
                     const sk = makeRunSessionKey(aid, singleRun.id);
                     const pt = run.tasks.find((t) => t.assigned_to === mn && t.status === "PENDING");
                     if (pt) {
-                      reacts.push(`${mn}: sessions_send({ message: "Work on: ${pt.description.slice(0, 80)}", sessionKey: "${sk}" })`);
+                      reacts.push(`${mn}: sessions_send({ message: ${JSON.stringify(buildMemberActivationMessage(pt))}, sessionKey: "${sk}" })`);
                     }
                   }
                   if (reacts.length > 0) {
@@ -506,6 +548,9 @@ export function teamRunTool(ctx: ToolContext) {
                       `All tasks are done. Complete the run: team_run(action: "complete", team: "${teamCtx.team}", result: "<summary of results>")`;
                   }
                 }
+
+                // Idle orchestrator safeguard (single-run path)
+                applyIdleOrchWarning(singleResult, run);
               }
 
               return textResult(singleResult);

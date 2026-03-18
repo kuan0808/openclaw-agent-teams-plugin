@@ -25,7 +25,7 @@ export function createCompactionHook(): (
         `- ${name}: ${tc.description} (${tc.coordination})`
       ).join("\n");
 
-      const summary = [
+      let summary = [
         "[Agent Teams — Post-Compaction Reminder]",
         "Available teams:",
         teamList,
@@ -36,6 +36,18 @@ export function createCompactionHook(): (
         "- Always execute REQUIRED_ACTION directives in tool responses.",
         "- When you receive [Team Name] notifications, relay progress to the user.",
       ].join("\n");
+
+      // Check for active runs across all teams
+      for (const [name] of teamEntries) {
+        const teamStores = registry.getTeamStores(name);
+        if (!teamStores) continue;
+        const workingRuns = teamStores.runs.getWorkingRuns();
+        for (const run of workingRuns) {
+          const taskCount = run.tasks.length;
+          const completed = run.tasks.filter(t => t.status === "COMPLETED").length;
+          summary += `\n\nActive run [${name}]: ${run.id} — "${run.goal.slice(0, 80)}" (${completed}/${taskCount} tasks done)`;
+        }
+      }
 
       registry.enqueueSystemEvent(summary, { sessionKey: ctx.sessionKey });
       return;
@@ -91,6 +103,23 @@ export function createCompactionHook(): (
             : JSON.stringify(val.value).slice(0, 120);
           sections.push(`  ${entry.key}: ${preview}`);
         }
+      }
+    }
+
+    // Add condensed action reminder based on role
+    const teamConfig = registry.getTeamConfig(team);
+    if (teamConfig) {
+      const isOrch = teamConfig.coordination === "orchestrator" && teamConfig.orchestrator === member;
+      if (isOrch) {
+        sections.push(
+          "Reminder: You are the orchestrator. Monitor tasks via team_task(query), " +
+          "review completions, and call team_run(complete) when all tasks are done."
+        );
+      } else {
+        sections.push(
+          "Reminder: Check team_task(query, filter: mine) for your assignments. " +
+          "When done, call team_task(update, status: COMPLETED, result: ...)."
+        );
       }
     }
 

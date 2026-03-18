@@ -15,10 +15,12 @@
  * Delegates to shared buildSystemPrompt() from prompt-builder for prompt construction.
  */
 
-import { isTeamAgent, parseAgentId, parseRunSessionKey, isCliMember } from "../types.js";
+import { isTeamAgent, parseAgentId, parseRunSessionKey, isCliMember, makeAgentId, makeRunSessionKey } from "../types.js";
 import { getRegistry, registerRunSession } from "../registry.js";
 import { buildSystemPrompt, buildMainAgentContext } from "../cli/prompt-builder.js";
 import { autoTransitionPendingToWorking } from "../tools/tool-helpers.js";
+import { ORCH_IDLE_GRACE_MS } from "../enforcement.js";
+import { buildOrchReactivationMessage } from "../helpers/notification-helpers.js";
 
 export function createAgentStartHook(): (
   event: { prompt: string; messages?: unknown[] },
@@ -34,7 +36,28 @@ export function createAgentStartHook(): (
       const teamNames = Object.keys(registry.config.teams);
       if (teamNames.length === 0) return;
 
-      const prependContext = buildMainAgentContext(registry.config);
+      let prependContext = buildMainAgentContext(registry.config);
+
+      // Proactive idle orchestrator detection
+      const now = Date.now();
+      for (const [teamName, teamConfig] of Object.entries(registry.config.teams)) {
+        if (teamConfig.coordination !== "orchestrator" || !teamConfig.orchestrator) continue;
+        const orchMember = teamConfig.members[teamConfig.orchestrator];
+        if (!orchMember || isCliMember(orchMember)) continue;
+        const stores = registry.getTeamStores(teamName);
+        if (!stores) continue;
+        for (const run of stores.runs.getWorkingRuns()) {
+          if (run.tasks.length > 0 || (now - run.started_at) <= ORCH_IDLE_GRACE_MS) continue;
+          const orchAgentId = makeAgentId(teamName, teamConfig.orchestrator);
+          const orchSessionKey = makeRunSessionKey(orchAgentId, run.id);
+          const reactivation = buildOrchReactivationMessage(teamConfig, run.goal);
+          prependContext +=
+            `\n\n### IDLE ORCHESTRATOR — ${teamName}\n` +
+            `Run "${run.id}" active for ${Math.round((now - run.started_at) / 1000)}s with ZERO tasks.\n` +
+            `Re-activate: sessions_send({ message: ${JSON.stringify(reactivation)}, sessionKey: ${JSON.stringify(orchSessionKey)} })`;
+        }
+      }
+
       return { prependContext };
     }
 

@@ -80,7 +80,10 @@ export async function handleEnforcementViolation(
   return `Run canceled: ${violation.message}`;
 }
 
-// ── Orchestrator auto-complete (lazy enforcement) ─────────────────────
+// ── Orchestrator idle & auto-complete (lazy enforcement) ───────────────
+
+/** Grace period (ms) before flagging an orchestrator run with zero tasks as idle. */
+export const ORCH_IDLE_GRACE_MS = 45_000;
 
 /** Grace period (seconds) before auto-completing an orchestrator run. */
 const ORCH_AUTO_COMPLETE_GRACE_SECONDS = 60;

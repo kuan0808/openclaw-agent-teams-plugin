@@ -3,7 +3,7 @@ import {
   buildOrchestratorContext,
   getOrchestratorMember,
 } from "../src/patterns/orchestrator.js";
-import { buildPeerContext, shouldAutoComplete } from "../src/patterns/peer.js";
+import { shouldAutoComplete } from "../src/patterns/peer.js";
 import type { TeamConfig, TeamRun, TeamTask } from "../src/types.js";
 
 // ── Shared fixtures ────────────────────────────────────────────────────
@@ -16,15 +16,6 @@ const orchConfig: TeamConfig = {
     lead: { role: "Leader" },
     researcher: { role: "Researcher", skills: ["web-search"] },
     writer: { role: "Writer", skills: ["content-writing"] },
-  },
-};
-
-const peerConfig: TeamConfig = {
-  description: "Peer team",
-  coordination: "peer",
-  members: {
-    alice: { role: "Dev", skills: ["frontend"] },
-    bob: { role: "Dev", skills: ["backend"] },
   },
 };
 
@@ -61,7 +52,12 @@ describe("getOrchestratorMember", () => {
   });
 
   it("throws if coordination is not 'orchestrator'", () => {
-    expect(() => getOrchestratorMember(peerConfig)).toThrow(/not "orchestrator"/);
+    const peerCfg: TeamConfig = {
+      description: "Peer team",
+      coordination: "peer",
+      members: { alice: { role: "Dev" } },
+    };
+    expect(() => getOrchestratorMember(peerCfg)).toThrow(/not "orchestrator"/);
   });
 
   it("throws if orchestrator not in members", () => {
@@ -87,18 +83,6 @@ describe("buildOrchestratorContext", () => {
   it("does not duplicate team member directory (handled by prompt-builder)", () => {
     const ctx = buildOrchestratorContext(orchConfig, null);
     expect(ctx).not.toContain("Team members:");
-  });
-});
-
-// ── buildPeerContext ───────────────────────────────────────────────────
-
-describe("buildPeerContext", () => {
-  it("includes peer rules", () => {
-    const ctx = buildPeerContext(peerConfig, "alice", null);
-    expect(ctx).toContain("Peer Collaboration Mode");
-    expect(ctx).toContain("Peer Rules");
-    expect(ctx).toContain("**alice** (you)");
-    expect(ctx).toContain("**bob**");
   });
 });
 

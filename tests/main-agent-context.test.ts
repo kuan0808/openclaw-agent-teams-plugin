@@ -20,6 +20,7 @@ function makeMinimalStores(): TeamStores {
     docs: {} as TeamStores["docs"],
     runs: {
       getRun: vi.fn(() => ({ found: false })),
+      getWorkingRuns: vi.fn(() => []),
       listTasks: vi.fn(() => []),
       save: vi.fn(async () => {}),
     } as unknown as TeamStores["runs"],

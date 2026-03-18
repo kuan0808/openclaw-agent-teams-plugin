@@ -28,7 +28,7 @@ import type {
   GateConfig,
 } from "../types.js";
 import { makeAgentId, makeRunSessionKey, isCliMember, getCliCwd, type TaskState as TaskStateType } from "../types.js";
-import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, notifyRequester, requireTeamAgent, checkSessionStillActive, LEARNINGS_KEY_PREFIX, DESCRIPTION_PREVIEW_LEN, wakeActiveNativeAssignee, countByStatus, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, notifyRequester, requireTeamAgent, checkSessionStillActive, LEARNINGS_KEY_PREFIX, DESCRIPTION_PREVIEW_LEN, wakeActiveNativeAssignee, buildMemberActivationMessage, countByStatus, type ToolContext } from "./tool-helpers.js";
 import { spawnCliIfNeeded } from "./cli-spawn-helper.js";
 import { validateTransition, TERMINAL_TASK_STATES, ACTIVE_TASK_STATES } from "../state/run-manager.js";
 import { fmtTaskAssigned, fmtTaskCompleted, fmtTaskFailed, fmtRevisionRequested, fmtRunCompleted } from "../helpers/notification-templates.js";
@@ -400,9 +400,9 @@ export function teamTaskTool(ctx: ToolContext) {
               seenMembers.add(t.assigned_to);
               const sk = makeRunSessionKey(aid, effectiveRunId);
               const pendingTask = allRunTasks.find((tt) => tt.assigned_to === t.assigned_to && tt.status === "PENDING");
-              const taskDesc = pendingTask ? pendingTask.description.slice(0, 80) : "your assigned tasks";
+              const taskMsg = buildMemberActivationMessage(pendingTask ?? undefined);
               activationCmds.push(
-                `sessions_send({ message: "You have been assigned: ${taskDesc}. Check team_task(query, filter: mine) for details.", sessionKey: "${sk}" })`,
+                `sessions_send({ message: ${JSON.stringify(taskMsg)}, sessionKey: "${sk}" })`,
               );
             }
             if (activationCmds.length > 0) {
