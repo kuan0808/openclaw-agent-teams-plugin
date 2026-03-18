@@ -1,0 +1,27 @@
+node_modules/
+dist/
+*.tsbuildinfo
+docs/
+
+# Environment & secrets
+.env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs & cache
+*.log
+coverage/
+.cache/
+tmp/
+
+# npm
+.npmrc

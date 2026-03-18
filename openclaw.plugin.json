@@ -1,0 +1,143 @@
+{
+  "id": "agent-teams",
+  "name": "Agent Teams",
+  "description": "Declarative multi-agent team coordination with Orchestrator and Peer patterns",
+  "version": "1.0.0",
+  "skills": ["./skills/agent-teams-setup"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "teams": {
+        "type": "object",
+        "description": "Team definitions keyed by team name",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["description", "coordination", "members"],
+          "properties": {
+            "description": { "type": "string" },
+            "coordination": { "type": "string", "enum": ["orchestrator", "peer"] },
+            "orchestrator": { "type": "string", "description": "Member key for orchestrator (required when coordination=orchestrator)" },
+            "shared_memory": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean", "default": true },
+                "stores": {
+                  "type": "object",
+                  "properties": {
+                    "kv": {
+                      "type": "object",
+                      "properties": {
+                        "max_entries": { "type": "number", "default": 1000 },
+                        "ttl": { "type": "number", "default": 3600 }
+                      }
+                    },
+                    "events": {
+                      "type": "object",
+                      "properties": {
+                        "max_backlog": { "type": "number", "default": 500 },
+                        "retention": { "type": "string", "enum": ["current-task", "persistent"], "default": "current-task" }
+                      }
+                    },
+                    "docs": {
+                      "type": "object",
+                      "properties": {
+                        "max_size_mb": { "type": "number", "default": 100 },
+                        "allowed_types": { "type": "array", "items": { "type": "string" }, "default": ["text", "json", "csv", "image"] }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "members": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "role": { "type": "string" },
+                  "role_file": { "type": "string" },
+                  "model": {
+                    "type": "object",
+                    "properties": {
+                      "primary": { "type": "string" }
+                    }
+                  },
+                  "skills": { "type": "array", "items": { "type": "string" } },
+                  "can_delegate": { "type": "boolean", "default": false },
+                  "tools": {
+                    "type": "object",
+                    "properties": {
+                      "deny": { "type": "array", "items": { "type": "string" } },
+                      "allow": { "type": "array", "items": { "type": "string" } }
+                    }
+                  },
+                  "cli": { "type": "string", "enum": ["claude", "codex", "gemini"], "description": "Spawn as external CLI agent instead of OpenClaw subagent" },
+                  "cli_options": {
+                    "type": "object",
+                    "description": "CLI-specific settings (only used when 'cli' is set)",
+                    "properties": {
+                      "cwd": { "type": "string", "description": "Working directory for CLI agent" },
+                      "thinking": { "type": "boolean", "description": "Enable extended thinking / ultrathink" },
+                      "verbose": { "type": "boolean", "description": "Enable verbose CLI output" },
+                      "extra_args": { "type": "array", "items": { "type": "string" }, "description": "Additional CLI flags" }
+                    }
+                  }
+                }
+              }
+            },
+            "workflow": {
+              "type": "object",
+              "properties": {
+                "max_rounds": { "type": "number", "default": 10 },
+                "timeout": { "type": "number", "default": 900 },
+                "gates": {
+                  "type": "object",
+                  "description": "Per-status gate requirements enforced by team_task updates",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "require_deliverables": { "type": "boolean" },
+                      "require_result": { "type": "boolean" },
+                      "approver": { "type": "string" },
+                      "reviewer": { "type": "string" }
+                    }
+                  }
+                },
+                "template": {
+                  "type": "object",
+                  "properties": {
+                    "stages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {
+                          "name": { "type": "string" },
+                          "role": { "type": "string" },
+                          "skills": { "type": "array", "items": { "type": "string" } }
+                        }
+                      }
+                    },
+                    "fail_handlers": {
+                      "type": "object",
+                      "description": "Map a failed stage name to the stage to loop back to",
+                      "additionalProperties": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            },
+            "knowledge": {
+              "type": "object",
+              "properties": {
+                "consolidation": { "type": "boolean", "default": true },
+                "retention": { "type": "string", "enum": ["current-run", "across-runs"], "default": "across-runs" },
+                "notify_leader": { "type": "boolean", "default": true }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,591 @@
+/**
+ * CLI Spawner — PTY process management for external CLI agents.
+ *
+ * Spawns CLI agents (Claude Code, Codex, Gemini) as background PTY processes.
+ * Each agent gets:
+ *  - An MCP config pointing to the mcp-bridge.js script for team tool access
+ *  - A system prompt with role, team context, and instructions
+ *  - PTY output streamed to a log file for `tail -f` observation
+ *  - Crash handler to auto-fail active tasks on process exit
+ */
+
+import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
+import * as path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import type { CliAgentProcess, CliSpawnParams, PtyHandle } from "./cli-types.js";
+import type { CliType, TeamConfig } from "../types.js";
+import { makeAgentId } from "../types.js";
+import { type PluginRegistry, type TeamStores, tryGetRegistry } from "../registry.js";
+import { ensureDir } from "../state/persistence.js";
+import { safeSaveAll } from "../tools/tool-helpers.js";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Resolve a CLI binary name to its full path using the user's shell.
+ * This handles cases where the gateway's LaunchAgent PATH doesn't include
+ * the directory containing the CLI binary (e.g., /Applications/cmux.app/...).
+ */
+async function resolveCliPath(name: string): Promise<string> {
+  // Try multiple methods to find the binary
+  const candidates = [
+    // 1. Direct which in current env
+    async () => {
+      const { stdout } = await execFileAsync("which", [name], { timeout: 5_000 });
+      return stdout.trim();
+    },
+    // 2. Login shell which
+    async () => {
+      const { stdout } = await execFileAsync("/bin/zsh", ["-lc", `which ${name}`], { timeout: 5_000 });
+      return stdout.trim();
+    },
+    // 3. Common macOS locations
+    async () => {
+      const paths = [
+        `/Applications/cmux.app/Contents/Resources/bin/${name}`,
+        `/usr/local/bin/${name}`,
+        `/opt/homebrew/bin/${name}`,
+        `${process.env.HOME}/.local/bin/${name}`,
+      ];
+      for (const p of paths) {
+        try { await fsp.access(p, fs.constants.X_OK); return p; } catch { /* next */ }
+      }
+      return "";
+    },
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const resolved = await candidate();
+      if (resolved) return resolved;
+    } catch { /* try next */ }
+  }
+  return name;  // fallback: hope it's in PATH
+}
+
+// ── node-pty lazy loading ─────────────────────────────────────────────────
+// node-pty is an optional dependency. We load it dynamically to avoid
+// hard failures when it's not installed.
+
+interface NodePtyModule {
+  spawn(
+    file: string,
+    args: string[],
+    options: {
+      name?: string;
+      cols?: number;
+      rows?: number;
+      cwd?: string;
+      env?: Record<string, string>;
+    },
+  ): {
+    pid: number;
+    onData: (callback: (data: string) => void) => void;
+    onExit: (callback: (e: { exitCode: number; signal?: number }) => void) => void;
+    write: (data: string) => void;
+    kill: (signal?: string) => void;
+    resize?: (cols: number, rows: number) => void;
+  };
+}
+
+let nodePty: NodePtyModule | null = null;
+
+// Module name as variable to prevent static resolution by TypeScript
+const NODE_PTY_MODULE = "node-pty";
+
+export async function loadNodePty(): Promise<NodePtyModule> {
+  if (nodePty) return nodePty;
+  try {
+    nodePty = await import(NODE_PTY_MODULE) as unknown as NodePtyModule;
+    return nodePty;
+  } catch {
+    throw new Error(
+      "node-pty is required for CLI agent support but not installed. " +
+      "Install it with: npm install node-pty",
+    );
+  }
+}
+
+// ── CLI Spawner ───────────────────────────────────────────────────────────
+
+export class CliSpawner {
+  private processes: Map<string, CliAgentProcess> = new Map();
+  private spawnLocks: Map<string, Promise<CliAgentProcess>> = new Map();
+  private pendingSaves: Promise<void>[] = [];
+
+  constructor(
+    private stateDir: string,
+    private sockPath: string,
+    private registry?: PluginRegistry,
+  ) {}
+
+  /**
+   * Spawn a CLI agent process, with duplicate-spawn protection.
+   * If a spawn is already in-flight for this agentId, returns the existing promise.
+   */
+  async spawn(params: CliSpawnParams): Promise<CliAgentProcess> {
+    const existing = this.spawnLocks.get(params.agentId);
+    if (existing) return existing;
+
+    const promise = this._doSpawn(params).finally(() => {
+      this.spawnLocks.delete(params.agentId);
+    });
+    this.spawnLocks.set(params.agentId, promise);
+    return promise;
+  }
+
+  /**
+   * Internal spawn implementation.
+   */
+  private async _doSpawn(params: CliSpawnParams): Promise<CliAgentProcess> {
+    const pty = await loadNodePty();
+
+    // Ensure log directory exists
+    const logDir = path.join(this.stateDir, "logs", params.team);
+    await ensureDir(logDir);
+    const logPath = path.join(logDir, `${params.member}.log`);
+    const logStream = fs.createWriteStream(logPath, { flags: "a" });
+
+    // Ensure cwd exists
+    await ensureDir(params.cwd);
+
+    // Build CLI-specific args and write config files
+    const tempFiles: string[] = [];
+    const { command, args } = await this.buildCliCommand(params, tempFiles);
+
+    // Spawn PTY process
+    const ptyProcess = pty.spawn(command, args, {
+      name: "xterm-256color",
+      cols: 120,
+      rows: 40,
+      cwd: params.cwd,
+      env: {
+        ...process.env,
+        // Ensure agent can find Node for MCP bridge
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+      },
+    });
+
+    const agentProcess: CliAgentProcess = {
+      agentId: params.agentId,
+      team: params.team,
+      member: params.member,
+      cli: params.cli,
+      pty: ptyProcess as unknown as PtyHandle,
+      pid: ptyProcess.pid,
+      cwd: params.cwd,
+      logStream,
+      tempFiles,
+      startedAt: Date.now(),
+      status: "starting",
+    };
+
+    // Stream PTY output to log file; mark as running on first data
+    ptyProcess.onData((data: string) => {
+      logStream.write(data);
+      if (agentProcess.status === "starting") {
+        agentProcess.status = "running";
+      }
+    });
+
+    // Crash handler
+    ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+      agentProcess.status = "exited";
+      agentProcess.exitCode = exitCode;
+
+      // Write exit info to log
+      logStream.write(`\n\n[Agent Teams] CLI agent exited with code ${exitCode} at ${new Date().toISOString()}\n`);
+      logStream.end();
+
+      if (exitCode !== 0) {
+        this.handleCrash(params.agentId, params.team, params.member, params.cli, exitCode);
+      } else {
+        // Exit code 0: agent finished normally. Auto-complete any orphaned WORKING tasks.
+        this.handleCleanExit(params.agentId, params.team, params.member, params.cli);
+      }
+
+      // Clean up temp files
+      for (const tmpFile of tempFiles) {
+        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+      }
+
+      // Remove exited process from tracking map
+      this.processes.delete(params.agentId);
+    });
+
+    this.processes.set(params.agentId, agentProcess);
+    return agentProcess;
+  }
+
+  /**
+   * Kill a specific CLI agent process.
+   */
+  kill(agentId: string): void {
+    const proc = this.processes.get(agentId);
+    if (proc && proc.status !== "exited") {
+      try {
+        proc.pty.kill("SIGTERM");
+      } catch {
+        // Process may already be dead
+      }
+    }
+    this.processes.delete(agentId);
+  }
+
+  /**
+   * Kill all CLI agent processes.
+   */
+  async killAll(): Promise<void> {
+    for (const [agentId] of this.processes) {
+      this.kill(agentId);
+    }
+
+    // Drain pending saves from crash handlers
+    if (this.pendingSaves.length > 0) {
+      await safeSaveAll(this.pendingSaves.splice(0));
+    }
+  }
+
+  /**
+   * Check if a CLI agent is alive.
+   */
+  isAlive(agentId: string): boolean {
+    const proc = this.processes.get(agentId);
+    return !!proc && proc.status !== "exited";
+  }
+
+  /**
+   * Get a CLI agent process by ID.
+   */
+  getProcess(agentId: string): CliAgentProcess | undefined {
+    return this.processes.get(agentId);
+  }
+
+  /**
+   * Get all CLI agent processes.
+   */
+  getAllProcesses(): Map<string, CliAgentProcess> {
+    return this.processes;
+  }
+
+  /**
+   * Get path to a CLI agent's log file.
+   */
+  getLogPath(team: string, member: string): string {
+    return path.join(this.stateDir, "logs", team, `${member}.log`);
+  }
+
+  // ── Shared MCP config builder ────────────────────────────────────────
+
+  private buildMcpConfig(agentId: string): object {
+    // Resolve bridge path relative to compiled cli-spawner.js location (dist/src/cli/)
+    const selfDir = path.dirname(new URL(import.meta.url).pathname);
+    const candidates = [
+      path.resolve(selfDir, "../../cli/mcp-bridge.js"),       // dist/src/cli/ → dist/cli/
+      path.resolve(selfDir, "../../dist/cli/mcp-bridge.js"),  // src/cli/ → dist/cli/ (dev mode)
+      path.resolve(selfDir, "../mcp-bridge.js"),              // same directory fallback
+    ];
+    const bridgePath = candidates.find((p) => fs.existsSync(p));
+    if (!bridgePath) {
+      throw new Error(`MCP bridge not found. Searched: ${candidates.join(", ")}. Run 'npm run build' first.`);
+    }
+    return this._mcpConfig(bridgePath, agentId);
+  }
+
+  private _mcpConfig(bridgePath: string, agentId: string): object {
+    return {
+      mcpServers: {
+        "agent-teams": {
+          command: "node",
+          args: [bridgePath],
+          env: {
+            AT_AGENT_ID: agentId,
+            AT_SOCK_PATH: this.sockPath,
+          },
+        },
+      },
+    };
+  }
+
+  private async writeMcpConfig(agentId: string, tempFiles: string[]): Promise<string> {
+    const mcpConfigPath = path.join(this.stateDir, "mcp-config", `${agentId}.json`);
+    await ensureDir(path.dirname(mcpConfigPath));
+    await fsp.writeFile(mcpConfigPath, JSON.stringify(this.buildMcpConfig(agentId), null, 2));
+    tempFiles.push(mcpConfigPath);
+    return mcpConfigPath;
+  }
+
+  // ── Build CLI command ────────────────────────────────────────────────
+
+  private async buildCliCommand(
+    params: CliSpawnParams,
+    tempFiles: string[],
+  ): Promise<{ command: string; args: string[] }> {
+    switch (params.cli) {
+      case "claude":
+        return this.buildClaudeCommand(params, tempFiles);
+      case "codex":
+        return this.buildCodexCommand(params, tempFiles);
+      case "gemini":
+        return this.buildGeminiCommand(params, tempFiles);
+      default:
+        throw new Error(`Unknown CLI type: ${params.cli}`);
+    }
+  }
+
+  /**
+   * Build Claude Code CLI command.
+   */
+  private async buildClaudeCommand(
+    params: CliSpawnParams,
+    tempFiles: string[],
+  ): Promise<{ command: string; args: string[] }> {
+    const mcpConfigPath = await this.writeMcpConfig(params.agentId, tempFiles);
+
+    const args = [
+      "--append-system-prompt", params.systemPrompt,
+      "--mcp-config", mcpConfigPath,
+      "--dangerously-skip-permissions",
+    ];
+
+    if (params.model) {
+      args.push("--model", params.model);
+    }
+
+    if (params.verbose) {
+      args.push("--verbose");
+    }
+
+    // Print prompt in non-interactive mode — wrap with lifecycle instructions
+    const taskPrompt = params.initialTask
+      ? `Your task: ${params.initialTask}\n\n` +
+        `After completing this task, you MUST call team_task(action: "update", status: "COMPLETED", result: "<summary>") ` +
+        `to report your results. If you don't call this tool, your work will be lost.`
+      : `Check team_task(action: "query", filter: "mine") and team_inbox for assignments.`;
+    args.push("-p", params.thinking ? `ultrathink ${taskPrompt}` : taskPrompt);
+
+    if (params.extraArgs) {
+      args.push(...params.extraArgs);
+    }
+
+    return { command: await resolveCliPath("claude"), args };
+  }
+
+  /**
+   * Build Codex CLI command.
+   */
+  private async buildCodexCommand(
+    params: CliSpawnParams,
+    tempFiles: string[],
+  ): Promise<{ command: string; args: string[] }> {
+    // Write codex.md in stateDir config area instead of cwd
+    const configDir = path.join(this.stateDir, "cli-config", params.agentId);
+    await ensureDir(configDir);
+    const codexMdPath = path.join(configDir, "codex.md");
+    await fsp.writeFile(codexMdPath, params.systemPrompt);
+    tempFiles.push(codexMdPath);
+
+    await this.writeMcpConfig(params.agentId, tempFiles);
+
+    const args = [
+      "--full-auto",
+      "--instructions", codexMdPath,
+    ];
+
+    if (params.model) {
+      args.push("--model", params.model);
+    }
+
+    const taskPrompt = params.initialTask ?? "Check team_inbox and team_task for assignments.";
+    args.push("-p", taskPrompt);
+
+    if (params.extraArgs) {
+      args.push(...params.extraArgs);
+    }
+
+    return { command: await resolveCliPath("codex"), args };
+  }
+
+  /**
+   * Build Gemini CLI command.
+   */
+  private async buildGeminiCommand(
+    params: CliSpawnParams,
+    tempFiles: string[],
+  ): Promise<{ command: string; args: string[] }> {
+    // Write config files in stateDir config area instead of cwd
+    const configDir = path.join(this.stateDir, "cli-config", params.agentId, ".gemini");
+    await ensureDir(configDir);
+
+    const geminiMdPath = path.join(configDir, "GEMINI.md");
+    await fsp.writeFile(geminiMdPath, params.systemPrompt);
+    tempFiles.push(geminiMdPath);
+
+    // Write settings.json with MCP server config
+    const settingsPath = path.join(configDir, "settings.json");
+    await fsp.writeFile(settingsPath, JSON.stringify(this.buildMcpConfig(params.agentId), null, 2));
+    tempFiles.push(settingsPath);
+
+    const args: string[] = [
+      "--sandbox_config_dir", path.dirname(configDir),
+    ];
+
+    if (params.model) {
+      args.push("--model", params.model);
+    }
+
+    if (params.thinking) {
+      args.push("--thinking");
+    }
+
+    const taskPrompt = params.initialTask ?? "Check team_inbox and team_task for assignments.";
+    args.push("-p", taskPrompt);
+
+    if (params.extraArgs) {
+      args.push(...params.extraArgs);
+    }
+
+    return { command: await resolveCliPath("gemini"), args };
+  }
+
+  // ── Crash handler ───────────────────────────────────────────────────
+
+  /**
+   * Handle clean exit (code 0): auto-complete any orphaned WORKING tasks.
+   * The CLI agent exited normally but may not have called team_task(update).
+   */
+  private handleCleanExit(
+    _agentId: string,
+    team: string,
+    member: string,
+    cli: CliType,
+  ): void {
+    const reg = tryGetRegistry();
+    if (!reg) return;
+    const stores = reg.getTeamStores(team);
+    if (!stores) return;
+
+    const allTasks = stores.runs.listTasks(team);
+    const orphaned = allTasks.filter((t) => t.assigned_to === member && t.status === "WORKING");
+    if (orphaned.length === 0) return;
+
+    // Read tail of log file for result context
+    const logPath = path.join(this.stateDir, "logs", team, `${member}.log`);
+    let logTail = "";
+    try { logTail = fs.readFileSync(logPath, "utf-8").slice(-500); } catch { /* ignore */ }
+
+    for (const task of orphaned) {
+      stores.runs.updateTask(team, task.id, {
+        status: "COMPLETED",
+        result: logTail
+          ? `[Auto-completed on CLI exit] ${logTail.slice(0, 300)}`
+          : "[Auto-completed on CLI exit] Agent exited without calling team_task(update).",
+      });
+      stores.activity.log(team, member, "task_completed",
+        `CLI agent exited (code 0), auto-completed task: ${task.description.slice(0, 80)}`, {
+          target_id: task.id,
+          metadata: { auto_completed: true, cli, exit_code: 0 },
+        });
+    }
+
+    const savePromise = Promise.all([
+      stores.runs.save(),
+      stores.activity.save(),
+    ]).catch((err) => {
+      console.error("[agent-teams] Clean exit save failed:", err);
+    }).finally(() => {
+      const idx = this.pendingSaves.indexOf(savePromise as Promise<void>);
+      if (idx !== -1) this.pendingSaves.splice(idx, 1);
+    });
+    this.pendingSaves.push(savePromise as Promise<void>);
+  }
+
+  private handleCrash(
+    agentId: string,
+    team: string,
+    member: string,
+    cli: CliType,
+    exitCode: number,
+  ): void {
+    const reg = tryGetRegistry();
+    if (!reg) return;
+
+    const stores = reg.getTeamStores(team);
+    if (!stores) return;
+
+    const teamConfig = reg.getTeamConfig(team);
+
+    // Auto-fail active tasks
+    const runResult = stores.runs.getRun(team);
+    if (runResult.found) {
+      let hasUpdates = false;
+      for (const task of runResult.run.tasks) {
+        if (task.assigned_to === member && task.status === "WORKING") {
+          stores.runs.updateTask(team, task.id, {
+            status: "FAILED",
+            message: `CLI agent crashed (exit code: ${exitCode})`,
+          });
+
+          // Capture learning about the crash
+          const learning = {
+            content: `CLI agent ${cli} crashed during task: ${task.description}`,
+            confidence: 0.7,
+            category: "failure" as const,
+            task_id: task.id,
+            timestamp: Date.now(),
+          };
+          stores.kv.set(`learnings:failure:${task.id}`, learning, member);
+
+          stores.activity.log(team, member, "task_failed",
+            `Task failed: CLI agent ${cli} crashed (exit code: ${exitCode})`, {
+              target_id: task.id,
+              metadata: { cli, exitCode },
+            });
+
+          hasUpdates = true;
+        }
+      }
+
+      if (hasUpdates) {
+        // Track save promise for draining in killAll; auto-remove when resolved
+        const savePromise = Promise.all([
+          stores.runs.save(),
+          stores.kv.save(),
+          stores.activity.save(),
+        ]).catch((err) => {
+          console.error("[agent-teams] Crash handler save failed:", err);
+        }).finally(() => {
+          const idx = this.pendingSaves.indexOf(savePromise as Promise<void>);
+          if (idx !== -1) this.pendingSaves.splice(idx, 1);
+        });
+        this.pendingSaves.push(savePromise as Promise<void>);
+      }
+    }
+
+    // Notify orchestrator
+    if (teamConfig?.orchestrator) {
+      stores.messages.push(
+        member,
+        teamConfig.orchestrator,
+        `CLI agent "${member}" (${cli}) crashed with exit code ${exitCode}. Active tasks have been marked FAILED.`,
+      );
+      stores.messages.save().catch(() => { /* Ignore */ });
+
+      // Push notification to orchestrator
+      const orchId = makeAgentId(team, teamConfig.orchestrator);
+      const orchRunSessions = reg.memberSessions.get(orchId);
+      if (orchRunSessions && orchRunSessions.size > 0) {
+        for (const rs of orchRunSessions.values()) {
+          reg.enqueueSystemEvent(
+            `[Team Update] CLI agent "${member}" (${cli}) crashed with exit code ${exitCode}. Active tasks marked FAILED.`,
+            { sessionKey: rs.sessionKey },
+          );
+          reg.requestHeartbeatNow({ agentId: orchId, sessionKey: rs.sessionKey });
+        }
+      }
+    }
+  }
+}

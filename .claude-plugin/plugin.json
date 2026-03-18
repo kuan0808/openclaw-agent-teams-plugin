@@ -1,0 +1,7 @@
+{
+  "name": "agent-teams",
+  "description": "Declarative multi-agent team coordination with Orchestrator and Peer patterns",
+  "version": "1.0.0",
+  "author": { "name": "OpenClaw" },
+  "skills": ["./skills/agent-teams-setup"]
+}
