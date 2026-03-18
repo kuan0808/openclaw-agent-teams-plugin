@@ -62,8 +62,8 @@ openclaw plugins install .
 ```
 
 **Important — session lifecycle:**
-- After applying config and restarting the gateway, you must start a **new conversation**
-  (use `/reset` or open a new chat) for the new settings to take effect
+- After applying config, start a **new conversation** (use `/reset` or open a new chat)
+  for the new settings to take effect — the gateway auto-restarts on config changes
 - Existing sessions cache their permissions at creation time — they cannot pick up
   config changes mid-conversation
 - This is a platform behavior, not a plugin limitation
@@ -149,12 +149,12 @@ openclaw config set plugins.entries.agent-teams.config --strict-json '<THE_JSON_
 Then tell the user:
 
 ```
-Config applied! Restart to activate:
+Config applied! Now start a new conversation to activate:
 
-  openclaw gateway restart
+  /reset
 
-After restart, **start a new conversation** (`/reset` or open a new chat).
-The current session won't pick up the new settings.
+The gateway auto-restarts on config changes, but your current session
+still caches the old permissions — so `/reset` (or a new chat) is needed.
 
 Then use the team:
   "Use the [team-name] team to [goal]"

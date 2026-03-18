@@ -14,6 +14,7 @@ Manage team execution runs. A run represents a goal the team is working towards.
 |-----------|------|----------|-------------|
 | `action` | `"start" \| "status" \| "complete" \| "cancel"` | Yes | Run lifecycle action |
 | `team` | string | No | Team name (auto-resolved for `at--` agents) |
+| `run_id` | string | No | Run ID (required for complete/cancel with concurrent runs, auto-resolved from session otherwise) |
 | `goal` | string | For `start` | Goal for the run |
 | `result` | string | No | Result summary (for `complete`) |
 | `reason` | string | No | Cancellation reason (for `cancel`) |
@@ -59,6 +60,7 @@ Create, update, and query tasks within a team run. Supports skill-based routing,
 | `result` | string | No | Task result (for update) |
 | `message` | string | No | Status message (for update) |
 | `filter_status` | string[] | No | Filter tasks by status (for query) |
+| `filter` | `"mine" \| "unassigned" \| "available"` | No | Filter tasks: `mine` (assigned to me), `unassigned` (no assignee), `available` (PENDING tasks I could claim) |
 | `deliverables` | Deliverable[] | No | Deliverables to register |
 | `learning` | Learning | No | Structured learning to capture |
 

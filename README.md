@@ -4,7 +4,7 @@
 
 **Define multi-agent teams in JSON. They coordinate through shared tools, messaging, and memory — no custom orchestration code needed.**
 
-[![npm](https://img.shields.io/npm/v/agent-teams?style=flat-square&color=cb3837)](https://www.npmjs.com/package/agent-teams) [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE) [![OpenClaw >= 2026.3.12](https://img.shields.io/badge/OpenClaw-%3E%3D2026.3.12-7c4dff?style=flat-square)](https://github.com/kuan0808/openclaw) [![Node >= 22](https://img.shields.io/badge/Node-%3E%3D22-43853d?style=flat-square)](https://nodejs.org) [![Tests](https://img.shields.io/badge/tests-350%20passing-brightgreen?style=flat-square)]()
+[![npm](https://img.shields.io/npm/v/agent-teams?style=flat-square&color=cb3837)](https://www.npmjs.com/package/agent-teams) [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE) [![OpenClaw >= 2026.3.12](https://img.shields.io/badge/OpenClaw-%3E%3D2026.3.12-7c4dff?style=flat-square)](https://github.com/kuan0808/openclaw) [![Node >= 22](https://img.shields.io/badge/Node-%3E%3D22-43853d?style=flat-square)](https://nodejs.org) [![Tests](https://img.shields.io/badge/tests-359%20passing-brightgreen?style=flat-square)]()
 
 </div>
 
@@ -32,11 +32,11 @@ openclaw config set plugins.entries.agent-teams.config --strict-json '{
   }
 }'
 
-# Go
-openclaw gateway restart
+# Start a new conversation to activate
+# (gateway auto-restarts on config changes)
 ```
 
-Then just ask:
+Then `/reset` (or open a new chat) and ask:
 
 ```
 You: "Use the dev team to build a REST API for user management"
@@ -492,7 +492,7 @@ team_inbox(source: "activity")  # Queryable audit trail
 ```bash
 npm install              # Install dependencies
 npm run build            # Build plugin + MCP bridge
-npm test                 # Run all tests — 350 across 31 files
+npm test                 # Run all tests — 359 across 31 files
 npm run dev              # Watch mode
 npm run typecheck        # Type check without emit
 ```
@@ -502,7 +502,7 @@ npm run typecheck        # Type check without emit
 ```bash
 npm run build
 openclaw plugins install --link .
-openclaw gateway restart
+# Start a new conversation (/reset) to pick up changes
 ```
 
 <br>

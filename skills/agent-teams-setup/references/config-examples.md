@@ -6,7 +6,7 @@
 
 ```bash
 openclaw config set plugins.entries.agent-teams.config --strict-json '<JSON>'
-openclaw gateway restart
+# Then /reset (or open a new chat) to activate — gateway auto-restarts on config changes
 ```
 
 ### Table of Contents
