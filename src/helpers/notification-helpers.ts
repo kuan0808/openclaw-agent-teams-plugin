@@ -77,6 +77,7 @@ export async function wakeActiveNativeAssignee(
     }
   }
 
+  console.warn(`[agent-teams] wakeAssignee: agent=${agentId} session=${sessionKey} task=${task.id}`);
   registry.enqueueSystemEvent(
     `[Team Update] New team task assigned to you: ${task.id} — ${task.description.slice(0, 160)}. Check team_task(action: query, filter: "mine") and team_inbox for details.`,
     { sessionKey },

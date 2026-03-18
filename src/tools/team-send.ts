@@ -158,6 +158,7 @@ export function teamSendTool(ctx: ToolContext) {
           const recipientAgentId = makeAgentId(teamCtx.team, recipientName);
           const recipientSession = resolveAgentSession(registry, recipientAgentId, callerRunId ?? undefined);
           if (recipientSession) {
+            console.warn(`[agent-teams] team_send notification → recipient=${recipientAgentId} session=${recipientSession}`);
             registry.enqueueSystemEvent(
               `[Team Message] New message from ${teamCtx.member}. Check team_inbox for details.`,
               { sessionKey: recipientSession },
