@@ -18,7 +18,7 @@ const config: AgentTeamsConfig = {
       coordination: "orchestrator",
       orchestrator: "lead",
       members: {
-        lead: { role: "Lead", can_delegate: true },
+        lead: { role: "Lead" },
         frontend: { role: "Frontend" },
         backend: { role: "Backend" },
         reviewer: { role: "Reviewer", cli: "codex" },

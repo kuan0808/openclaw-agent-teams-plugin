@@ -58,12 +58,8 @@ export function provisionAgents(
         agent.model = { primary: memberConfig.model.primary };
       }
 
-      // Subagent delegation
-      if (memberConfig.can_delegate) {
-        agent.subagents = { allowAgents: allMemberIds };
-      } else {
-        agent.subagents = { allowAgents: [] };
-      }
+      // Allow agent to interact with all team members
+      agent.subagents = { allowAgents: allMemberIds };
 
       // Tool restrictions
       if (memberConfig.tools) {

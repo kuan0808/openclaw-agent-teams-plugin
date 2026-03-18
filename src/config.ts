@@ -68,22 +68,6 @@ function validateRequiredTools(
       }
     }
   }
-
-  if (
-    team.coordination === "orchestrator" &&
-    team.orchestrator === memberKey
-  ) {
-    if (allow && !allow.includes("sessions_spawn")) {
-      errors.push(
-        `Team "${teamName}", member "${memberKey}": native orchestrators must include "sessions_spawn" in tools.allow`,
-      );
-    }
-    if (deny?.includes("sessions_spawn")) {
-      errors.push(
-        `Team "${teamName}", member "${memberKey}": native orchestrators must not deny "sessions_spawn"`,
-      );
-    }
-  }
 }
 
 export function validateConfig(raw: unknown): ConfigValidationResult {
@@ -249,7 +233,6 @@ function parseMembers(raw: Record<string, unknown>): TeamConfig["members"] {
       role_file: m.role_file as string | undefined,
       model: m.model as { primary: string } | undefined,
       skills: m.skills as string[] | undefined,
-      can_delegate: m.can_delegate as boolean | undefined,
       tools: m.tools as { deny?: string[]; allow?: string[] } | undefined,
       cli: m.cli as CliType | undefined,
       cli_options: parseCliOptions(m.cli_options),

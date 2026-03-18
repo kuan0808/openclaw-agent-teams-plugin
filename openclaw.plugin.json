@@ -62,7 +62,6 @@
                     }
                   },
                   "skills": { "type": "array", "items": { "type": "string" } },
-                  "can_delegate": { "type": "boolean", "default": false },
                   "tools": {
                     "type": "object",
                     "properties": {

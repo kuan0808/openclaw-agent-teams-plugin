@@ -27,34 +27,6 @@ describe("validateConfig", () => {
     );
   });
 
-  it("rejects native orchestrators that block sessions_spawn", () => {
-    const result = validateConfig({
-      teams: {
-        alpha: {
-          description: "Team",
-          coordination: "orchestrator",
-          orchestrator: "lead",
-          members: {
-            lead: {
-              role: "Lead",
-              tools: {
-                deny: ["sessions_spawn"],
-              },
-            },
-            worker: {
-              role: "Worker",
-            },
-          },
-        },
-      },
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.errors).toContain(
-      'Team "alpha", member "lead": native orchestrators must not deny "sessions_spawn"',
-    );
-  });
-
   it("preserves reviewer field in gate config through parsing", () => {
     const raw = {
       teams: {

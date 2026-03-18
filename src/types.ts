@@ -47,7 +47,6 @@ export interface MemberConfig {
   role_file?: string;
   model?: { primary: string };
   skills?: string[];
-  can_delegate?: boolean;
   tools?: {
     deny?: string[];
     allow?: string[];
