@@ -35,7 +35,6 @@ export function registerPluginSurface(api: PluginApiSurface): void {
 
   // Tools
   api.registerTool((ctx: any) => {
-    console.warn(`[agent-teams] tool factory: agentId=${JSON.stringify(ctx?.agentId)} sessionKey=${JSON.stringify(ctx?.sessionKey)} channel=${JSON.stringify(ctx?.messageChannel)}`);
     return [
       teamRunTool(ctx),
       teamTaskTool(ctx),

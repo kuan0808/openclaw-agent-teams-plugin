@@ -318,8 +318,40 @@ export function parseRunSessionKey(sessionKey: string): ParsedRunSessionKey | nu
 
 export const AGENT_ID_PREFIX = "at--";
 
+// Gateway only allows [a-z0-9_-] in agent IDs (normalizeAgentId strips
+// non-ASCII chars). Encode non-ASCII names as "0u" + hex code points.
+const ASCII_SAFE_RE = /^[a-z0-9][a-z0-9_-]*$/i;
+
+/** Encode non-ASCII string to gateway-safe slug (0u + hex). ASCII strings pass through. */
+export function slugify(s: string): string {
+  if (ASCII_SAFE_RE.test(s)) return s.toLowerCase();
+  // Use uniform 4-digit hex for BMP (U+0000–U+FFFF), 6-digit for supplementary.
+  // Delimiter `_` separates variable-length code points for unambiguous decoding.
+  const parts: string[] = [];
+  for (const ch of s) {
+    parts.push(ch.codePointAt(0)!.toString(16));
+  }
+  return "0u" + parts.join("_");
+}
+
+/** Decode slug back to original string. Non-encoded strings pass through. */
+export function unslugify(slug: string): string {
+  if (!slug.startsWith("0u") || slug.length < 4) return slug;
+  const body = slug.slice(2);
+  // Must contain only hex digits and underscores
+  if (!/^[0-9a-f]+(?:_[0-9a-f]+)*$/.test(body)) return slug;
+  const parts = body.split("_");
+  let result = "";
+  for (const part of parts) {
+    const cp = parseInt(part, 16);
+    if (Number.isNaN(cp)) return slug; // Invalid hex — pass through
+    result += String.fromCodePoint(cp);
+  }
+  return result;
+}
+
 export function makeAgentId(team: string, member: string): string {
-  return `${AGENT_ID_PREFIX}${team}--${member}`;
+  return `${AGENT_ID_PREFIX}${slugify(team)}--${slugify(member)}`;
 }
 
 export function parseAgentId(agentId: string): { team: string; member: string } | null {
@@ -327,7 +359,7 @@ export function parseAgentId(agentId: string): { team: string; member: string } 
   const rest = agentId.slice(AGENT_ID_PREFIX.length);
   const idx = rest.indexOf("--");
   if (idx === -1) return null;
-  return { team: rest.slice(0, idx), member: rest.slice(idx + 2) };
+  return { team: unslugify(rest.slice(0, idx)), member: unslugify(rest.slice(idx + 2)) };
 }
 
 export function isTeamAgent(agentId?: string): boolean {

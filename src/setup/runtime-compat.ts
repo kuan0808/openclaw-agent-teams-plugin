@@ -151,5 +151,14 @@ export function reconcileHostRuntimeConfig(
     );
   }
 
+  // Ensure heartbeat delivers to the user's active channel.
+  // Without target, system event notifications (task progress, run completion)
+  // are processed but never delivered to Telegram/Discord/etc.
+  const heartbeat = ensureObject(defaults, "heartbeat");
+  if (!heartbeat.target) {
+    heartbeat.target = "last";
+    changes.push('Set agents.defaults.heartbeat.target to "last" for team notification delivery.');
+  }
+
   return { changes, warnings, requirements };
 }

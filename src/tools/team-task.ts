@@ -416,7 +416,6 @@ export function teamTaskTool(ctx: ToolContext) {
                 activationCmds.map((cmd, i) => `${i + 1}. ${cmd}`).join("\n");
               // Send to the caller's session (orchestrator or peer)
               if (ctx.sessionKey) {
-                console.warn(`[agent-teams] activation event → caller session=${ctx.sessionKey}`);
                 registry.enqueueSystemEvent(activationMsg, { sessionKey: ctx.sessionKey });
                 registry.requestHeartbeatNow({ sessionKey: ctx.sessionKey });
               }
@@ -425,7 +424,6 @@ export function teamTaskTool(ctx: ToolContext) {
               const currentRun = runs.getRun(teamCtx.team, effectiveRunId);
               if (currentRun.found && currentRun.run.requester_session &&
                   currentRun.run.requester_session !== ctx.sessionKey) {
-                console.warn(`[agent-teams] activation event → requester session=${currentRun.run.requester_session}`);
                 registry.enqueueSystemEvent(activationMsg, { sessionKey: currentRun.run.requester_session });
                 registry.requestHeartbeatNow({ sessionKey: currentRun.run.requester_session });
               }
@@ -558,7 +556,6 @@ export function teamTaskTool(ctx: ToolContext) {
               const workerAgentId = makeAgentId(teamCtx.team, existing.assigned_to);
               const workerSk = resolveAgentSession(registry, workerAgentId, taskRunId);
               if (workerSk) {
-                console.warn(`[agent-teams] revision notification → worker=${existing.assigned_to} session=${workerSk}`);
                 registry.enqueueSystemEvent(
                   `[Revision Requested] Task ${params.task_id} needs revision: ${params.message.slice(0, 200)}. Address the feedback and resubmit as COMPLETED.`,
                   { sessionKey: workerSk },
@@ -899,7 +896,6 @@ export function teamTaskTool(ctx: ToolContext) {
                     `sessions_send({ message: "${statusSummary} Review results and call team_run(action: complete) to finalize.", sessionKey: "${orchSk}" })`;
 
                   // Backup: fire-and-forget system event to orchestrator
-                  console.warn(`[agent-teams] all-terminal notification → orchestrator session=${orchSk}`);
                   registry.enqueueSystemEvent(
                     `[${teamName} Team] [Action Required] ${statusSummary} Complete the run:\n` +
                     `team_run(action: "complete", team: "${teamName}", result: "<summary of results>")`,

@@ -216,7 +216,7 @@ export function parseConfig(raw: unknown): AgentTeamsConfig {
       members: parseMembers(team.members as Record<string, unknown>),
       workflow: {
         max_rounds: (prop(workflow, "max_rounds") as number | undefined) ?? 10,
-        timeout: (prop(workflow, "timeout") as number | undefined) ?? 900,
+        timeout: (prop(workflow, "timeout") as number | undefined) ?? 1800,
         gates: parseGates(prop(workflow, "gates")),
         template: parseWorkflowTemplate(prop(workflow, "template")),
       },

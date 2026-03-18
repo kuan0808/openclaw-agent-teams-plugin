@@ -16,16 +16,11 @@ export function notifyRequester(team: string, message: string, runId?: string): 
   const stores = registry.getTeamStores(team);
   if (!stores) return;
   const run = stores.runs.getRun(team, runId);
-  if (!run.found || !run.run.requester_session) {
-    console.warn(`[agent-teams] notifyRequester SKIPPED: run=${runId} found=${run.found} requester_session=${run.found ? JSON.stringify(run.run.requester_session) : "N/A"}`);
-    return;
-  }
-  console.warn(`[agent-teams] notifyRequester: team=${team} runId=${runId} sessionKey=${run.run.requester_session} message=${message.slice(0, 80)}`);
-  const enqueued = registry.enqueueSystemEvent(
+  if (!run.found || !run.run.requester_session) return;
+  registry.enqueueSystemEvent(
     `[${team} Team] ${message}`,
     { sessionKey: run.run.requester_session },
   );
-  console.warn(`[agent-teams] enqueueSystemEvent returned: ${enqueued}`);
   registry.requestHeartbeatNow({ sessionKey: run.run.requester_session });
   stores.activity.log(team, "__system__", "requester_notified", message, {
     target_id: runId,
@@ -77,7 +72,6 @@ export async function wakeActiveNativeAssignee(
     }
   }
 
-  console.warn(`[agent-teams] wakeAssignee: agent=${agentId} session=${sessionKey} task=${task.id}`);
   registry.enqueueSystemEvent(
     `[Team Update] New team task assigned to you: ${task.id} — ${task.description.slice(0, 160)}. Check team_task(action: query, filter: "mine") and team_inbox for details.`,
     { sessionKey },

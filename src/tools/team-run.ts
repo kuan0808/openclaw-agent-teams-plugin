@@ -148,7 +148,6 @@ export function teamRunTool(ctx: ToolContext) {
 
             const orchestrator = teamConfig?.orchestrator;
 
-            console.warn(`[agent-teams] team_run(start): ctx.sessionKey=${JSON.stringify(ctx.sessionKey)} ctx.agentId=${JSON.stringify(ctx.agentId)} agentId=${JSON.stringify(agentId)}`);
             const result = runs.startRun(teamCtx.team, params.goal, orchestrator, ctx.sessionKey);
 
             // Log run start
