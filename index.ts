@@ -155,12 +155,19 @@ export default {
     // Always re-register tools/hooks/commands — gateway may need them
     registerPluginSurface(api);
 
+    // ── 3c. Provision & inject agents synchronously ──────────────────
+    // CRITICAL: Gateway ignores the async portion of activate() — agent
+    // injection MUST happen before the first await or agents won't appear
+    // in the runtime config (and thus won't show in WebUI/agent list).
+    const provisioned = provisionAgents(config, stateDir);
+    const allAgentIds = collectAllAgentIds(config);
+    const injected = injectAgents(api.config, provisioned, allAgentIds);
+    if (injected.length > 0) {
+      log.info(`Injected ${injected.length} team agents: ${injected.join(", ")}`);
+    }
+
     // ── 4. Async: only initialize stores once per process ────────────
     if (_storesInitialized) {
-      // Re-activation: stores already loaded, just re-inject agents
-      const provisioned = provisionAgents(config, stateDir);
-      const allAgentIds = collectAllAgentIds(config);
-      injectAgents(api.config, provisioned, allAgentIds);
       log.info("Agent Teams plugin re-activated (stores preserved in memory).");
       return;
     }
@@ -172,7 +179,7 @@ export default {
       return;
     }
 
-    // First activation: load stores, recover sessions, provision agents
+    // First activation: load stores, recover sessions, create workspaces
     _activationInFlight = (async () => {
       await ensureDir(stateDir);
 
@@ -185,15 +192,7 @@ export default {
       }
 
       recoverRunSessions(_teamsMap!, registry);
-
-      const provisioned = provisionAgents(config, stateDir);
-      const allAgentIds = collectAllAgentIds(config);
-      const injected = injectAgents(api.config, provisioned, allAgentIds);
       await createWorkspaces(provisioned);
-
-      if (injected.length > 0) {
-        log.info(`Injected ${injected.length} team agents: ${injected.join(", ")}`);
-      }
 
       // CLI infra (IPC server + spawner) is initialized on-demand when the
       // first CLI agent needs to be spawned (via spawnCliIfNeeded → ensureCliReady).
