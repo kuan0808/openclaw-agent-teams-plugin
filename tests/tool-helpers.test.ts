@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { collectLearnings, resolveToolContext } from "../src/tools/tool-helpers.js";
+import { collectLearnings, resolveToolContext, effectiveAgentId } from "../src/tools/tool-helpers.js";
 import { setRegistry } from "../src/registry.js";
 import type { PluginRegistry, TeamStores } from "../src/registry.js";
 import type { TeamConfig } from "../src/types.js";
@@ -157,6 +157,51 @@ describe("resolveToolContext error messages", () => {
       expect(text).toContain("qa");
       expect(text).toContain("Available teams");
     }
+  });
+
+  it("resolves agentId from sessionKey when ctx.agentId is missing", () => {
+    setTestRegistryWithTeams({
+      dev: { description: "Dev", coordination: "peer", members: { a: { role: "A" } } },
+    });
+
+    // ctx.agentId undefined, but sessionKey encodes a valid team agent
+    const resolved = effectiveAgentId({
+      sessionKey: "agent:at--dev--worker:run:run-1",
+    });
+    expect(resolved).toBe("at--dev--worker");
+  });
+
+  it("prefers ctx.agentId when it is a valid team agent", () => {
+    setTestRegistryWithTeams({
+      dev: { description: "Dev", coordination: "peer", members: { a: { role: "A" } } },
+    });
+
+    const resolved = effectiveAgentId({
+      agentId: "at--dev--lead",
+      sessionKey: "agent:at--dev--worker:run:run-1",
+    });
+    expect(resolved).toBe("at--dev--lead");
+  });
+
+  it("returns ctx.agentId when sessionKey has no team agent", () => {
+    setTestRegistryWithTeams({
+      dev: { description: "Dev", coordination: "peer", members: { a: { role: "A" } } },
+    });
+
+    const resolved = effectiveAgentId({
+      agentId: "main",
+      sessionKey: "some-session-key",
+    });
+    expect(resolved).toBe("main");
+  });
+
+  it("returns undefined when both agentId and sessionKey are missing", () => {
+    setTestRegistryWithTeams({
+      dev: { description: "Dev", coordination: "peer", members: { a: { role: "A" } } },
+    });
+
+    const resolved = effectiveAgentId({});
+    expect(resolved).toBeUndefined();
   });
 
   it("lists available teams when team name is wrong", () => {

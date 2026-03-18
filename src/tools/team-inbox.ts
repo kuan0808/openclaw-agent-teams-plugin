@@ -8,7 +8,7 @@
  */
 
 import { Type, type Static } from "@sinclair/typebox";
-import { textResult, errorResult, resolveToolContext, requireTeamAgent, checkSessionStillActive, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, requireTeamAgent, effectiveAgentId, checkSessionStillActive, type ToolContext } from "./tool-helpers.js";
 import type { ActivityType } from "../types.js";
 
 // ── Parameters ──────────────────────────────────────────────────────────
@@ -76,13 +76,14 @@ export function teamInboxTool(ctx: ToolContext) {
       params: Params,
       _signal?: AbortSignal,
     ) {
+      const agentId = effectiveAgentId(ctx);
       // Main agent should delegate to team agents, not call team_inbox directly
-      const guard = requireTeamAgent(ctx.agentId, "team_inbox");
+      const guard = requireTeamAgent(agentId, "team_inbox");
       if (guard) return guard;
 
-      const resolved = resolveToolContext(ctx.agentId, params.team);
+      const resolved = resolveToolContext(agentId, params.team);
       if (!resolved.ok) return resolved.error;
-      const staleGuard = checkSessionStillActive(ctx.agentId, ctx.sessionKey);
+      const staleGuard = checkSessionStillActive(agentId, ctx.sessionKey);
       if (staleGuard) return staleGuard;
       const { teamCtx, stores } = resolved;
 

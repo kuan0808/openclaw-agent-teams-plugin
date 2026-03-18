@@ -9,7 +9,7 @@
 import { resolveTeamContext, type ResolvedTeamContext } from "../context.js";
 import { getRegistry } from "../registry.js";
 import type { TeamStores } from "../registry.js";
-import { parseRunSessionKey, isTeamAgent } from "../types.js";
+import { parseRunSessionKey, isTeamAgent, parseAgentId } from "../types.js";
 
 // ── Re-exports from sub-modules ─────────────────────────────────────────
 
@@ -35,6 +35,24 @@ export interface ToolContext {
   workspaceDir?: string;
   messageChannel?: string;
   agentAccountId?: string;
+}
+
+// ── Agent identity resolution ───────────────────────────────────────────
+
+/**
+ * Resolve the effective agent ID from ctx.agentId or ctx.sessionKey.
+ *
+ * Some gateways don't propagate ctx.agentId to subagent sessions, but the
+ * session key always encodes it (format: "agent:<agentId>:run:<runId>").
+ * This helper extracts the agent ID from whichever source is available.
+ */
+export function effectiveAgentId(ctx: ToolContext): string | undefined {
+  if (isTeamAgent(ctx.agentId)) return ctx.agentId;
+  if (ctx.sessionKey) {
+    const parsed = parseRunSessionKey(ctx.sessionKey);
+    if (parsed && isTeamAgent(parsed.agentId)) return parsed.agentId;
+  }
+  return ctx.agentId;  // return original even if not a team agent
 }
 
 // ── Tool context resolution ─────────────────────────────────────────────

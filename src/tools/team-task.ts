@@ -28,7 +28,7 @@ import type {
   GateConfig,
 } from "../types.js";
 import { makeAgentId, makeRunSessionKey, isCliMember, getCliCwd, type TaskState as TaskStateType } from "../types.js";
-import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, notifyRequester, requireTeamAgent, checkSessionStillActive, LEARNINGS_KEY_PREFIX, DESCRIPTION_PREVIEW_LEN, wakeActiveNativeAssignee, buildMemberActivationMessage, countByStatus, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, notifyRequester, requireTeamAgent, effectiveAgentId, checkSessionStillActive, LEARNINGS_KEY_PREFIX, DESCRIPTION_PREVIEW_LEN, wakeActiveNativeAssignee, buildMemberActivationMessage, countByStatus, type ToolContext } from "./tool-helpers.js";
 import { spawnCliIfNeeded } from "./cli-spawn-helper.js";
 import { validateTransition, TERMINAL_TASK_STATES, ACTIVE_TASK_STATES } from "../state/run-manager.js";
 import { fmtTaskAssigned, fmtTaskCompleted, fmtTaskFailed, fmtRevisionRequested, fmtRunCompleted } from "../helpers/notification-templates.js";
@@ -146,13 +146,14 @@ export function teamTaskTool(ctx: ToolContext) {
       params: Params,
       _signal?: AbortSignal,
     ) {
+      const agentId = effectiveAgentId(ctx);
       // Main agent should delegate to team agents, not call team_task directly
-      const guard = requireTeamAgent(ctx.agentId, "team_task");
+      const guard = requireTeamAgent(agentId, "team_task");
       if (guard) return guard;
 
-      const resolved = resolveToolContext(ctx.agentId, params.team);
+      const resolved = resolveToolContext(agentId, params.team);
       if (!resolved.ok) return resolved.error;
-      const staleGuard = checkSessionStillActive(ctx.agentId, ctx.sessionKey);
+      const staleGuard = checkSessionStillActive(agentId, ctx.sessionKey);
       if (staleGuard) return staleGuard;
       const { teamCtx, stores } = resolved;
 

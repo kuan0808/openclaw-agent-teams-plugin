@@ -7,7 +7,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { getRegistry, resolveAgentSession } from "../registry.js";
 import { makeAgentId } from "../types.js";
-import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, requireTeamAgent, checkSessionStillActive, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, requireTeamAgent, effectiveAgentId, checkSessionStillActive, type ToolContext } from "./tool-helpers.js";
 
 // ── Parameters ──────────────────────────────────────────────────────────
 
@@ -49,13 +49,14 @@ export function teamSendTool(ctx: ToolContext) {
       params: Params,
       _signal?: AbortSignal,
     ) {
+      const agentId = effectiveAgentId(ctx);
       // Main agent should delegate to team agents, not call team_send directly
-      const guard = requireTeamAgent(ctx.agentId, "team_send");
+      const guard = requireTeamAgent(agentId, "team_send");
       if (guard) return guard;
 
-      const resolved = resolveToolContext(ctx.agentId, params.team);
+      const resolved = resolveToolContext(agentId, params.team);
       if (!resolved.ok) return resolved.error;
-      const staleGuard = checkSessionStillActive(ctx.agentId, ctx.sessionKey);
+      const staleGuard = checkSessionStillActive(agentId, ctx.sessionKey);
       if (staleGuard) return staleGuard;
       const { teamCtx, stores } = resolved;
 

@@ -11,7 +11,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { getRegistry, cleanupRunSessions } from "../registry.js";
 import { generateTaskChain } from "../workflow/template-engine.js";
-import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, countByStatus, collectLearnings, clearLearnings, consolidateLearnings, notifyRequester, checkSessionStillActive, DESCRIPTION_PREVIEW_LEN, RESULT_PREVIEW_LEN, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, resolveRunIdFromSession, safeSaveAll, countByStatus, collectLearnings, clearLearnings, consolidateLearnings, notifyRequester, effectiveAgentId, checkSessionStillActive, DESCRIPTION_PREVIEW_LEN, RESULT_PREVIEW_LEN, type ToolContext } from "./tool-helpers.js";
 import { spawnCliIfNeeded } from "./cli-spawn-helper.js";
 import { makeAgentId, makeRunSessionKey, isCliMember, type TaskState as TaskStateType } from "../types.js";
 import { checkRunLimits, handleEnforcementViolation, shouldOrchestratorAutoComplete, handleOrchestratorAutoComplete, ORCH_IDLE_GRACE_MS } from "../enforcement.js";
@@ -65,9 +65,10 @@ export function teamRunTool(ctx: ToolContext) {
       params: Params,
       _signal?: AbortSignal,
     ) {
-      const resolved = resolveToolContext(ctx.agentId, params.team);
+      const agentId = effectiveAgentId(ctx);
+      const resolved = resolveToolContext(agentId, params.team);
       if (!resolved.ok) return resolved.error;
-      const staleGuard = checkSessionStillActive(ctx.agentId, ctx.sessionKey);
+      const staleGuard = checkSessionStillActive(agentId, ctx.sessionKey);
       if (staleGuard) return staleGuard;
       const { teamCtx, stores } = resolved;
 

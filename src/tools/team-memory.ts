@@ -5,7 +5,7 @@
  */
 
 import { Type, type Static } from "@sinclair/typebox";
-import { textResult, errorResult, resolveToolContext, safeSaveAll, LEARNINGS_KEY_PREFIX, sanitizeDocumentKey, checkSessionStillActive, type ToolContext } from "./tool-helpers.js";
+import { textResult, errorResult, resolveToolContext, safeSaveAll, LEARNINGS_KEY_PREFIX, sanitizeDocumentKey, effectiveAgentId, checkSessionStillActive, type ToolContext } from "./tool-helpers.js";
 import { getRegistry } from "../registry.js";
 import type { TeamStores } from "../registry.js";
 import type { ResolvedTeamContext } from "../context.js";
@@ -83,9 +83,10 @@ export function teamMemoryTool(ctx: ToolContext) {
       params: Params,
       _signal?: AbortSignal,
     ) {
-      const resolved = resolveToolContext(ctx.agentId, params.team);
+      const agentId = effectiveAgentId(ctx);
+      const resolved = resolveToolContext(agentId, params.team);
       if (!resolved.ok) return resolved.error;
-      const staleGuard = checkSessionStillActive(ctx.agentId, ctx.sessionKey);
+      const staleGuard = checkSessionStillActive(agentId, ctx.sessionKey);
       if (staleGuard) return staleGuard;
       const { teamCtx, stores } = resolved;
 
