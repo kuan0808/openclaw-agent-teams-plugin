@@ -34,8 +34,7 @@
                     "events": {
                       "type": "object",
                       "properties": {
-                        "max_backlog": { "type": "number", "default": 500 },
-                        "retention": { "type": "string", "enum": ["current-task", "persistent"], "default": "current-task" }
+                        "max_backlog": { "type": "number", "default": 500 }
                       }
                     },
                     "docs": {

@@ -249,7 +249,7 @@ Every optional field demonstrated.
         "enabled": true,
         "stores": {
           "kv": { "max_entries": 500, "ttl": 7200 },
-          "events": { "max_backlog": 1000, "retention": "persistent" },
+          "events": { "max_backlog": 1000 },
           "docs": { "max_size_mb": 50, "allowed_types": ["text", "json", "csv"] }
         }
       },
@@ -262,10 +262,6 @@ Every optional field demonstrated.
         "specialist": {
           "role": "Domain specialist handling complex analysis",
           "skills": ["analysis", "research", "data"],
-          "tools": {
-            "deny": ["team_run"],
-            "allow": ["team_task", "team_memory", "team_send", "team_inbox"]
-          },
           "model": { "primary": "claude-opus-4-20250514" }
         },
         "fast-worker": {
@@ -318,7 +314,6 @@ Every optional field demonstrated.
 
 **Notes:**
 - `role_file` loads the role description from an external markdown file
-- `tools.deny` / `tools.allow` restricts which team tools a member can use
 - `model.primary` sets the preferred model for the agent
 - Different members can use different model tiers for cost optimization
 - `cli_options.extra_args` is an escape hatch for additional CLI flags

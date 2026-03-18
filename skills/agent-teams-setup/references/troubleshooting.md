@@ -23,6 +23,9 @@ These errors appear at plugin activation. The plugin disables itself if any are 
 | `Team "X", member "Y": 'cli' must be one of claude, codex, gemini` | Invalid CLI type | Use `"claude"`, `"codex"`, or `"gemini"` |
 | `Team "X", member "Y": 'cli_options.cwd' must be a string` | Invalid cwd type | Set `cwd` to a string path |
 | `Team "X", member "Y": 'cli_options.extra_args' must be an array` | Invalid extra_args type | Set `extra_args` to an array of strings |
+| `Team "X", member "Y": tools.allow must include "team_run" for Agent Teams to work` | `tools.allow` is set but missing a core team tool | All 5 core tools (`team_run`, `team_task`, `team_memory`, `team_send`, `team_inbox`) must be in `allow` |
+| `Team "X", member "Y": tools.deny must not block "team_run"` | `tools.deny` blocks a core team tool | Remove core team tools from `deny` — they are required for Agent Teams |
+| `Team "X", member "Y": native orchestrators must include "sessions_spawn" in tools.allow` | Orchestrator member has `tools.allow` without `sessions_spawn` | Add `"sessions_spawn"` to orchestrator's `tools.allow` |
 
 ---
 

@@ -220,9 +220,11 @@ Queries the system activity log.
 - Cannot be combined with `topic`
 - `filter_type` — Filter by activity type. Valid types:
   `task_created`, `task_updated`, `task_completed`, `task_failed`,
-  `run_started`, `run_completed`, `run_canceled`, `message_sent`,
-  `memory_updated`, `deliverable_added`, `dependency_resolved`,
-  `dependency_blocked`, `dependency_cascaded`, `learning_captured`,
+  `task_canceled`, `task_revision_requested`, `task_revision_restarted`,
+  `run_started`, `run_completed`, `run_canceled`, `run_timeout`,
+  `run_max_rounds_exceeded`, `message_sent`, `memory_updated`,
+  `deliverable_added`, `dependency_resolved`, `dependency_blocked`,
+  `dependency_cascaded`, `learning_captured`, `requester_notified`,
   `workflow_stage_advanced`, `workflow_fail_loopback`
 - `filter_agent` — Filter by member name
 - Returns `source: "activity"`, `team`, `count`, `entries`

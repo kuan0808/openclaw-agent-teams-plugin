@@ -125,13 +125,20 @@ Gates enforce quality requirements on task status transitions.
 |-------|------|-------------|
 | `require_deliverables` | boolean | At least one deliverable must be attached to the task |
 | `require_result` | boolean | A `result` string must be provided |
-| `approver` | string | Only this member can perform the transition |
+| `approver` | string | Only this member can transition to COMPLETED |
+| `reviewer` | string | Only this member (or `"orchestrator"`) can transition to REVISION_REQUESTED |
 
-### Approver
+### Approver / Reviewer
 
 - `"orchestrator"` — Resolves to the team's configured orchestrator member
-- Any member name — Only that specific member can approve
+- Any member name — Only that specific member can approve/review
 - The leader agent (`__leader__`) always bypasses approver checks
+
+### REVISION_REQUESTED Behavior
+
+- Each revision request **increments `round_count`**, counting toward `max_rounds` enforcement
+- Only **leaf tasks** (tasks with no active non-terminal dependents) can be sent for revision
+- The `reviewer` gate field controls who can request revisions (defaults to orchestrator in orchestrator mode)
 
 ### Gate Error Messages
 
