@@ -92,6 +92,31 @@ describe("reconcileHostRuntimeConfig", () => {
     expect(runtimeConfig.agents.defaults.subagents.maxConcurrent).toBe(9);
     expect(runtimeConfig.agents.defaults.subagents.maxChildrenPerAgent).toBe(4);
   });
+
+  it("sets tools.sessions.visibility to 'all'", () => {
+    const runtimeConfig: Record<string, any> = {};
+    const result = reconcileHostRuntimeConfig(runtimeConfig, config);
+    expect(runtimeConfig.tools.sessions.visibility).toBe("all");
+    expect(result.changes.some((msg: string) => msg.includes("sessions.visibility"))).toBe(true);
+  });
+
+  it("preserves existing 'all' visibility without logging change", () => {
+    const runtimeConfig: Record<string, any> = {
+      tools: { sessions: { visibility: "all" } },
+    };
+    const result = reconcileHostRuntimeConfig(runtimeConfig, config);
+    expect(runtimeConfig.tools.sessions.visibility).toBe("all");
+    expect(result.changes.some((msg: string) => msg.includes("sessions.visibility"))).toBe(false);
+  });
+
+  it("overwrites restrictive sessions visibility", () => {
+    const runtimeConfig: Record<string, any> = {
+      tools: { sessions: { visibility: "none" } },
+    };
+    const result = reconcileHostRuntimeConfig(runtimeConfig, config);
+    expect(runtimeConfig.tools.sessions.visibility).toBe("all");
+    expect(result.changes.some((msg: string) => msg.includes('was "none"'))).toBe(true);
+  });
 });
 
 describe("injectAgents", () => {
@@ -135,5 +160,6 @@ describe("injectAgents", () => {
       ]),
     );
     expect(runtimeConfig.agents.defaults.subagents).toBeUndefined();
+    expect(runtimeConfig.tools.sessions.visibility).toBe("all");
   });
 });

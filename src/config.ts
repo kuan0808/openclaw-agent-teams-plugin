@@ -18,6 +18,9 @@ export interface ConfigValidationResult {
   errors: string[];
 }
 
+const UNSAFE_NAME_RE = /[\/\\:*?"<>|]/;
+const UNSAFE_NAME_HINT = `Avoid: / \\ : * ? " < > |`;
+
 const CORE_TEAM_TOOLS = [
   "team_run",
   "team_task",
@@ -91,6 +94,12 @@ export function validateConfig(raw: unknown): ConfigValidationResult {
       continue;
     }
 
+    if (UNSAFE_NAME_RE.test(name)) {
+      errors.push(
+        `Team "${name}": name contains characters that may cause filesystem issues. ${UNSAFE_NAME_HINT}`,
+      );
+    }
+
     const team = teamRaw as Record<string, unknown>;
 
     if (!team.description || typeof team.description !== "string") {
@@ -129,12 +138,27 @@ export function validateConfig(raw: unknown): ConfigValidationResult {
         errors.push(`Team "${name}", member "${memberKey}": must be an object`);
         continue;
       }
+
+      if (UNSAFE_NAME_RE.test(memberKey)) {
+        errors.push(
+          `Team "${name}", member "${memberKey}": name contains characters that may cause filesystem issues. ${UNSAFE_NAME_HINT}`,
+        );
+      }
+
       const member = memberRaw as Record<string, unknown>;
       if (!member.role && !member.role_file) {
         errors.push(
           `Team "${name}", member "${memberKey}": must have 'role' or 'role_file'`,
         );
       }
+      if (member.role_file && typeof member.role_file === "string") {
+        if (!member.role_file.endsWith(".md") && !member.role_file.endsWith(".txt")) {
+          errors.push(
+            `Team "${name}", member "${memberKey}": role_file "${member.role_file}" should be a .md or .txt file`,
+          );
+        }
+      }
+
       if (member.cli !== undefined) {
         const validCli = ["claude", "codex", "gemini"];
         if (!validCli.includes(member.cli as string)) {

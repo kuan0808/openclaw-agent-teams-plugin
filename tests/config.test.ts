@@ -80,4 +80,84 @@ describe("validateConfig", () => {
 
     expect(result.ok).toBe(true);
   });
+
+  it("rejects team names with filesystem-unsafe characters", () => {
+    const result = validateConfig({
+      teams: {
+        "my/team": {
+          description: "Team",
+          coordination: "peer",
+          members: { alice: { role: "Alice" } },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes("filesystem issues"))).toBe(true);
+  });
+
+  it("rejects member names with filesystem-unsafe characters", () => {
+    const result = validateConfig({
+      teams: {
+        alpha: {
+          description: "Team",
+          coordination: "peer",
+          members: { "dev:ops": { role: "DevOps" } },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes("filesystem issues"))).toBe(true);
+  });
+
+  it("allows Unicode team and member names", () => {
+    const result = validateConfig({
+      teams: {
+        "文淵閣": {
+          description: "研究團隊",
+          coordination: "peer",
+          members: {
+            "尋卷": { role: "研究員" },
+            "明鑒": { role: "分析師" },
+          },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("warns about role_file with non-standard extension", () => {
+    const result = validateConfig({
+      teams: {
+        alpha: {
+          description: "Team",
+          coordination: "peer",
+          members: {
+            alice: { role_file: "./roles/alice.yaml" },
+          },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes("should be a .md or .txt file"))).toBe(true);
+  });
+
+  it("accepts role_file with .md extension", () => {
+    const result = validateConfig({
+      teams: {
+        alpha: {
+          description: "Team",
+          coordination: "peer",
+          members: {
+            alice: { role_file: "./roles/alice.md" },
+          },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
 });

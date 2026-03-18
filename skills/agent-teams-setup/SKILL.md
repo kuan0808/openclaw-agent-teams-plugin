@@ -61,6 +61,13 @@ npm install && npm run build
 openclaw plugins install .
 ```
 
+**Important — session lifecycle:**
+- After applying config and restarting the gateway, you must start a **new conversation**
+  (use `/reset` or open a new chat) for the new settings to take effect
+- Existing sessions cache their permissions at creation time — they cannot pick up
+  config changes mid-conversation
+- This is a platform behavior, not a plugin limitation
+
 ### Step 1: Offer Choices
 
 Present these options to the user:
@@ -146,7 +153,10 @@ Config applied! Restart to activate:
 
   openclaw gateway restart
 
-After restart, you can use the team:
+After restart, **start a new conversation** (`/reset` or open a new chat).
+The current session won't pick up the new settings.
+
+Then use the team:
   "Use the [team-name] team to [goal]"
 
 Or check status with: /team status [team-name]

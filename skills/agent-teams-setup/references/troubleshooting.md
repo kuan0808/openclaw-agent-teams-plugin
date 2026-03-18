@@ -66,6 +66,22 @@ These errors appear at plugin activation. The plugin disables itself if any are 
 
 ---
 
+## Session & Activation Errors
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `sessions_send` fails or is not available | `tools.sessions.visibility` not configured | Restart gateway — the plugin auto-configures this on activation |
+| Team configured but agents never activate | Main agent can't reach team agent sessions | Restart gateway, then `/reset` to start a new session |
+| Changed settings but team still not working | Current session caches permissions from before config change | Start a new conversation (`/reset` or open a new chat) |
+| `REQUIRED_ACTION` returned but nothing happens | Main agent didn't execute the `sessions_send` calls in the response | Execute every `sessions_send(...)` command listed in the response |
+
+**Key concept:** OpenClaw sessions cache their tool permissions at creation time.
+After installing or reconfiguring the plugin:
+1. Restart the gateway (`openclaw gateway restart`)
+2. Start a **new** conversation (`/reset`) — the old session will NOT pick up new permissions
+
+---
+
 ## CLI Agent Issues
 
 | Symptom | Cause | Fix |

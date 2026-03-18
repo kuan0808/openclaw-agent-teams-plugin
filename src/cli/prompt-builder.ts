@@ -49,6 +49,7 @@ export function buildMainAgentContext(config: AgentTeamsConfig): string {
     '2. The response contains `REQUIRED_ACTION` — execute every `sessions_send(...)` call listed.\n' +
     '   - Orchestrator teams: activate the orchestrator agent.\n' +
     '   - Peer teams: activate each peer agent listed in `next_steps`.\n' +
+    '   **If sessions_send fails**: Restart the gateway and start a new conversation (/reset).\n' +
     '3. The team works autonomously after activation. You will receive progress notifications\n' +
     '   prefixed with `[<Team> Team]` as system events.\n' +
     '4. **When you receive a notification**: Briefly update the user on team progress. If the\n' +

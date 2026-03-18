@@ -93,7 +93,10 @@ export default {
       for (const err of validation.errors) {
         log.error(`Config error: ${err}`);
       }
-      log.error("Agent Teams plugin disabled due to config errors.");
+      log.error(
+        "Agent Teams plugin disabled due to config errors. " +
+        "Use the agent-teams-setup skill for guided configuration, or see the README for config examples.",
+      );
       return;
     }
 
@@ -101,7 +104,10 @@ export default {
     const teamNames = Object.keys(config.teams);
 
     if (teamNames.length === 0) {
-      log.info("No teams configured. Agent Teams plugin idle.");
+      log.info(
+        "No teams configured — Agent Teams plugin idle. " +
+        'Say "help me set up a team" to start the guided setup.',
+      );
       return;
     }
 

@@ -8,6 +8,7 @@
 import * as path from "node:path";
 import type { AgentTeamsConfig, MemberConfig } from "../types.js";
 import { makeAgentId, isCliMember } from "../types.js";
+import { ensureObject } from "./runtime-compat.js";
 import { ensureDir } from "../state/persistence.js";
 
 /**
@@ -127,13 +128,8 @@ export function injectAgents(
   }
 
   // Ensure agentToAgent allow includes all team agent IDs (including CLI agents)
-  if (!runtimeConfig.tools) {
-    runtimeConfig.tools = {};
-  }
-  if (!runtimeConfig.tools.agentToAgent) {
-    runtimeConfig.tools.agentToAgent = {};
-  }
-  const a2a = runtimeConfig.tools.agentToAgent;
+  const tools = ensureObject(runtimeConfig, "tools");
+  const a2a = ensureObject(tools, "agentToAgent");
   if (!a2a.enabled) {
     a2a.enabled = true;
   }
@@ -146,6 +142,14 @@ export function injectAgents(
     if (!existingAllowed.has(id)) {
       a2a.allow.push(id);
     }
+  }
+
+  // Ensure sessions visibility for team messaging (belt-and-suspenders;
+  // reconcileHostRuntimeConfig also sets this, but injectAgents is called
+  // from persistAgentsToDisk too, so cover both paths).
+  const sessions = ensureObject(tools, "sessions");
+  if (sessions.visibility !== "all") {
+    sessions.visibility = "all";
   }
 
   // Clean up invalid defaults key left behind by previous plugin versions.

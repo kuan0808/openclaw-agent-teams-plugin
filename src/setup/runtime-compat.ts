@@ -82,7 +82,7 @@ export function computeSubagentRequirements(
   };
 }
 
-function ensureObject(parent: Record<string, any>, key: string): Record<string, any> {
+export function ensureObject(parent: Record<string, any>, key: string): Record<string, any> {
   if (!parent[key] || typeof parent[key] !== "object" || Array.isArray(parent[key])) {
     parent[key] = {};
   }
@@ -137,6 +137,18 @@ export function reconcileHostRuntimeConfig(
   if (!agentToAgent.enabled) {
     agentToAgent.enabled = true;
     changes.push("Enabled tools.agentToAgent for team agent messaging.");
+  }
+
+  // Ensure sessions_send visibility for team agent activation.
+  // Without visibility = "all", the main agent cannot call sessions_send
+  // to activate team agents (whose sessions it didn't create).
+  const sessions = ensureObject(tools, "sessions");
+  if (sessions.visibility !== "all") {
+    const oldVal = sessions.visibility;
+    sessions.visibility = "all";
+    changes.push(
+      `Set tools.sessions.visibility to "all" for team agent messaging${oldVal ? ` (was "${oldVal}")` : ""}.`,
+    );
   }
 
   return { changes, warnings, requirements };
